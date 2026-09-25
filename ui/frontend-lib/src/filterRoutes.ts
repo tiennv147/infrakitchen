@@ -414,6 +414,38 @@ const allRoutes: LazyRouteDefinition[] = [
     featureFlag: "services",
   },
 
+  // ── Environments ───────────────────────────────────────────────────────────────
+  {
+    path: "/environments",
+    Component: lz(
+      () => import("./environments/pages/Environments"),
+      "EnvironmentsPage",
+    ),
+    requiredPermission: "api:environment",
+    permissionAction: "read",
+    featureFlag: "services",
+  },
+  {
+    path: "/environments/create",
+    Component: lz(
+      () => import("./environments/pages/EnvironmentCreate"),
+      "EnvironmentCreatePage",
+    ),
+    requiredPermission: "api:environment",
+    permissionAction: "admin",
+    featureFlag: "services",
+  },
+  {
+    path: "/environments/:environment_id/:tab?",
+    Component: lz(
+      () => import("./environments/pages/Environment"),
+      "EnvironmentPage",
+    ),
+    requiredPermission: "api:environment",
+    permissionAction: "read",
+    featureFlag: "services",
+  },
+
   // ── Templates ─────────────────────────────────────────────────────────────────
   {
     path: "/templates",

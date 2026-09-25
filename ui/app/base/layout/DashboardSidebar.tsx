@@ -23,6 +23,7 @@ import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
 import MemoryIcon from "@mui/icons-material/Memory";
 import PeopleIcon from "@mui/icons-material/People";
 import PlaylistAddCheckIcon from "@mui/icons-material/PlaylistAddCheck";
+import PublicIcon from "@mui/icons-material/Public";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import StorageIcon from "@mui/icons-material/Storage";
 import WorkspacesIcon from "@mui/icons-material/Workspaces";
@@ -141,6 +142,7 @@ export default function DashboardSidebar({
     "/source_codes/*",
     "/workspaces/*",
     "/storages/*",
+    "/environments/*",
     "/secrets/*",
   ].some((pattern) => matchPath(pattern, pathname));
   const isOperationsActive = ["/tasks/*", "/workflows/*", "/workers/*"].some(
@@ -320,6 +322,16 @@ export default function DashboardSidebar({
                     selected={!!matchPath("/storages/*", pathname)}
                     permissionKey="storage"
                   />
+                  {globalConfig?.services && (
+                    <DashboardSidebarPageItem
+                      id="environments"
+                      title="Environments"
+                      icon={<PublicIcon />}
+                      href="/environments"
+                      selected={!!matchPath("/environments/*", pathname)}
+                      permissionKey="environment"
+                    />
+                  )}
                   <DashboardSidebarPageItem
                     id="secrets"
                     title="Secrets"

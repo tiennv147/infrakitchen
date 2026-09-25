@@ -11,17 +11,27 @@ import {
 import { useEntityProvider } from "../../common/context/EntityContext";
 import { Revision } from "../../revision/Revision";
 
+import { ServiceEnvironments } from "./ServiceEnvironments";
 import { ServiceNotificationSubscribersTable } from "./ServiceNotificationSubscribersTable";
 import { ServiceOverview } from "./ServiceOverview";
 import { ServicePermissions } from "./ServicePermissions";
 
 export const ServiceContent = () => {
   const [subscribersRefreshKey, setSubscribersRefreshKey] = useState(0);
-  const { entity, userEntityPermissions } = useEntityProvider();
+  const { entity, actions, userEntityPermissions } = useEntityProvider();
 
   if (!entity) return null;
 
   const tabs: TabDefinition[] = [
+    {
+      label: "Environments",
+      content: (
+        <ServiceEnvironments
+          serviceId={entity.id}
+          canEdit={actions.includes("edit")}
+        />
+      ),
+    },
     {
       label: "Policies",
       content: <ServicePermissions service={entity} />,
