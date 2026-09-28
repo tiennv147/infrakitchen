@@ -10,7 +10,7 @@ from core.errors import DependencyError
 
 
 def _load_depends_on(service, deps):
-    """Simulate session.refresh(service, ["depends_on"]) populating the noload collection."""
+    """Simulate session.refresh(service, ["depends_on"]) loading the current links."""
 
     async def refresh(obj, attrs=None):
         if attrs == ["depends_on"]:
@@ -24,7 +24,7 @@ class TestDependsOnUpdate:
     async def test_clearing_existing_dependencies_is_a_change(
         self, mock_service_service, mock_service_crud, mocked_service, mocked_user
     ):
-        # Regression: depends_on is noload, so without a refresh it reads [] and clearing looked like a no-op.
+        # Regression: without loading current links first, clearing them looked like a no-op.
         mock_service_crud.get_by_id.return_value = mocked_service
         mock_service_crud.session.refresh = AsyncMock(
             side_effect=_load_depends_on(mocked_service, [Service(id=uuid4())])

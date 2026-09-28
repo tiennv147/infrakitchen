@@ -1,4 +1,5 @@
 import { GqlUserShort } from "../../users/graphql";
+import { ServiceSpec } from "../types";
 
 import type {
   ServiceGraphqlShortField,
@@ -28,6 +29,7 @@ type GqlServiceDetailFieldTypes = {
   repositoryUrl: string | null;
   labels: string[] | null;
   revisionNumber: number;
+  spec: ServiceSpec | null;
   createdAt: string;
   updatedAt: string;
   entityName: string;

@@ -2,6 +2,7 @@ import uuid
 from typing import cast
 
 import strawberry
+from strawberry.scalars import JSON
 from strawberry.types import Info
 from strawberry.experimental import pydantic as strawberry_pydantic
 
@@ -27,6 +28,7 @@ class ServiceCreateInput:
     labels: list[str] = strawberry.field(default_factory=list)
     owners: list[uuid.UUID] = strawberry.field(default_factory=list)
     depends_on: list[uuid.UUID] = strawberry.field(default_factory=list)
+    spec: JSON | None = None
 
 
 @strawberry_pydantic.input(model=ServiceUpdate, all_fields=False)
@@ -39,6 +41,7 @@ class ServiceUpdateInput:
     labels: list[str] | None = None
     owners: list[uuid.UUID] | None = None
     depends_on: list[uuid.UUID] | None = None
+    spec: JSON | None = None
 
 
 @strawberry.input

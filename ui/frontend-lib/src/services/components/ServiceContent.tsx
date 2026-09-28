@@ -11,6 +11,7 @@ import {
 import { useEntityProvider } from "../../common/context/EntityContext";
 import { Revision } from "../../revision/Revision";
 
+import { ServiceDependencies } from "./ServiceDependencies";
 import { ServiceEnvironments } from "./ServiceEnvironments";
 import { ServiceNotificationSubscribersTable } from "./ServiceNotificationSubscribersTable";
 import { ServiceOverview } from "./ServiceOverview";
@@ -28,6 +29,16 @@ export const ServiceContent = () => {
       content: (
         <ServiceEnvironments
           serviceId={entity.id}
+          canEdit={actions.includes("edit")}
+        />
+      ),
+    },
+    {
+      label: "Dependencies",
+      content: (
+        <ServiceDependencies
+          serviceId={entity.id}
+          spec={entity.spec ?? null}
           canEdit={actions.includes("edit")}
         />
       ),

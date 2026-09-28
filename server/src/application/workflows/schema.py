@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from application.integrations.schema import IntegrationShort
 from application.resources.schema import ResourceShort
@@ -23,6 +23,14 @@ class WiringRule(BaseModel):
     source_output: str = Field(..., description="Name of the output variable on the source resource")
     target_template_id: uuid.UUID = Field(..., description="Template whose resource consumes the value")
     target_variable: str = Field(..., description="Name of the input variable on the target resource")
+    source_step_key: str | None = Field(default=None, description="Source step key; overrides source_template_id")
+    target_step_key: str | None = Field(default=None, description="Target step key; overrides target_template_id")
+
+    def source_key(self) -> str:
+        return self.source_step_key or str(self.source_template_id)
+
+    def target_key(self) -> str:
+        return self.target_step_key or str(self.target_template_id)
 
 
 class WorkflowRequest(BaseModel):
@@ -67,6 +75,10 @@ class WorkflowStepCreate(BaseModel):
     integration_ids: list[uuid.UUID] = Field(default_factory=list)
     secret_ids: list[uuid.UUID] = Field(default_factory=list)
     storage_id: uuid.UUID | None = None
+    step_key: str | None = None
+    parent_step_keys: list[str] = Field(default_factory=list)
+    storage_path: str | None = None
+    workspace_id: uuid.UUID | None = None
 
 
 class WorkflowCreate(BaseModel):
@@ -111,10 +123,22 @@ class WorkflowStepResponse(BaseModel):
     source_code_version_id: uuid.UUID | None = None
     source_code_version: SourceCodeVersionShort | None = None
     storage_id: uuid.UUID | None = None
+    step_key: str | None = None
+    parent_step_keys: list[str] = Field(default_factory=list)
+    storage_path: str | None = None
+    workspace_id: uuid.UUID | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("parent_step_keys", mode="before")
+    @classmethod
+    def _none_to_empty(cls, value: list[str] | None) -> list[str]:
+        return value or []
+
+    def key(self) -> str:
+        return self.step_key or str(self.template_id)
 
 
 class WorkflowResponse(BaseModel):

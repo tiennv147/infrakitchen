@@ -20,9 +20,10 @@ from core.revisions.handler import RevisionHandler
 from core.utils.event_sender import EventSender
 from core.utils.model_tools import has_field_changes, model_db_dump, to_json_serializable
 from .functions import get_service_actions
+from .compiler import CompiledService, ServicePlan, compile_service_spec, validate_spec_against_catalog
 from .crud import ServiceCRUD
 from .model import Service
-from .schema import ServiceCreate, ServiceResponse, ServiceUpdate
+from .schema import ServiceCreate, ServiceResponse, ServiceSpec, ServiceUpdate
 from core.users.model import UserDTO
 
 logger = logging.getLogger(__name__)
@@ -77,10 +78,45 @@ class ServiceService:
         if project is None:
             raise EntityNotFound(f"Project {project_id} not found")
 
+    async def _validate_spec(self, spec: ServiceSpec) -> None:
+        if not spec.claims:
+            return
+        errors = validate_spec_against_catalog(spec, await self.crud.load_catalog(spec))
+        if errors:
+            raise ValueError("Invalid service spec: " + "; ".join(errors))
+
+    async def compile(self, service_id: str | UUID, environment_id: str | UUID, requester: UserDTO) -> CompiledService:
+        """Compile the service spec for one environment without persisting or executing anything."""
+        service = await self.crud.get_by_id(service_id, fields={"id": None, "name": None, "spec": None})
+        if not service:
+            raise EntityNotFound("Service not found")
+        environment = await self.crud.load_environment_target(environment_id)
+        if environment is None:
+            raise EntityNotFound("Environment not found")
+
+        spec = ServiceSpec.model_validate(service.spec or {})
+        instance_id, anchor, owned = await self.crud.load_instance(service.id, environment.id)
+        return compile_service_spec(
+            service_id=service.id,
+            service_name=service.name,
+            spec=spec,
+            catalog=await self.crud.load_catalog(spec),
+            environment=environment,
+            owned=owned,
+            created_by=requester.id,
+            anchor=anchor,
+            service_instance_id=instance_id,
+        )
+
+    async def plan(self, service_id: str | UUID, environment_id: str | UUID, requester: UserDTO) -> ServicePlan:
+        return (await self.compile(service_id, environment_id, requester)).plan
+
     async def create_service(self, service: ServiceCreate, requester: UserDTO) -> Service:
         await self._assert_project_exists(service.project_id)
+        await self._validate_spec(service.spec)
 
-        body = to_json_serializable(service.model_dump(exclude_unset=True))
+        body = to_json_serializable(service.model_dump(exclude_unset=True, exclude={"spec"}))
+        body["spec"] = service.spec.model_dump(mode="json")
         body["created_by"] = requester.id
         if body.get("repository_url") == "":
             body["repository_url"] = None
@@ -105,9 +141,12 @@ class ServiceService:
         if not existing_service:
             raise EntityNotFound("Service not found")
 
-        body = model_db_dump(service, exclude_defaults=True, exclude_none=True)
+        body = model_db_dump(service, exclude_fields={"spec"}, exclude_defaults=True, exclude_none=True)
         if body.get("repository_url") == "":
             body["repository_url"] = None
+        if service.spec is not None:
+            await self._validate_spec(service.spec)
+            body["spec"] = service.spec.model_dump(mode="json")
 
         depends_on = body.pop("depends_on", None)
         depends_on_changed = False

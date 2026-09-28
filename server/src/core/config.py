@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     JWT_KEY: str = "supersecret"
     SESSION_EXPIRATION: str = "3600"
     MCP_ENABLED: bool = False
+    # Where developers request a new offering for the service catalog, e.g. an intake form.
+    OFFERING_REQUEST_URL: str = ""
 
     class ConfigDict:
         env_file = ".env"

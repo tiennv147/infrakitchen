@@ -11,6 +11,8 @@ export interface TemplateConfig {
   allowed_provider_integration_types: IntegrationProviderType[];
   naming_convention: string | null;
   required_configuration_variables: string[];
+  claimable?: boolean;
+  binding_outputs?: string[];
 }
 
 export interface TemplateImportRequest {

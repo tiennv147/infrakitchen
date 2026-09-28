@@ -24,6 +24,22 @@ class TemplateConfig(BaseModel):
 
     required_configuration_variables: list[str] = Field(default_factory=list)
 
+    # Published in the offering catalog: services may claim resources of this template.
+    claimable: bool = Field(default=False)
+
+    # Outputs a claiming service may bind into its runtime configuration.
+    binding_outputs: list[str] = Field(default_factory=list)
+
+    @field_validator("binding_outputs")
+    @classmethod
+    def validate_binding_outputs(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("binding_outputs must be unique")
+        for name in value:
+            if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", name):
+                raise ValueError(f"Invalid binding output name: {name}")
+        return value
+
 
 class TemplateShort(BaseModel):
     id: uuid.UUID

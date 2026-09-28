@@ -1,3 +1,15 @@
+export interface ClaimSpec {
+  alias: string;
+  template: string;
+  source_code_version_id: string | null;
+  variables: Record<string, any>;
+  parents: string[];
+}
+
+export interface ServiceSpec {
+  claims: ClaimSpec[];
+}
+
 export interface ServiceCreateRequest {
   name: string;
   displayName: string | null;
@@ -16,4 +28,5 @@ export interface ServiceUpdateRequest {
   repositoryUrl?: string | null;
   labels?: string[];
   owners?: string[];
+  spec?: ServiceSpec;
 }

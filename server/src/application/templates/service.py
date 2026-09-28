@@ -67,6 +67,10 @@ class TemplateService:
         """Return ORM models directly, with optimized loading based on requested fields."""
         return await self.crud.get_all(filter=filter, range=range, sort=sort, fields=fields)
 
+    async def query_claimable(self, fields: FieldSpec | None = None) -> list[Template]:
+        """Enabled, non-abstract templates published to the offering catalog."""
+        return await self.crud.get_claimable(fields=fields)
+
     async def create_template(self, template: TemplateCreate, requester: UserDTO) -> Template:
         """
         Create a new template.

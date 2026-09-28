@@ -1,4 +1,5 @@
 from datetime import datetime, UTC
+from typing import Any
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -46,6 +47,9 @@ class Service(BaseRevision):
     repository_url: Mapped[str | None] = mapped_column(nullable=True)
 
     labels: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    # Declarative ServiceSpec (claims); empty for services that only carry metadata.
+    spec: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}", nullable=False)
 
     creator: Mapped[User] = relationship("User", lazy="joined")
     owners: Mapped[list[User]] = relationship(secondary=service_owners, lazy="selectin")

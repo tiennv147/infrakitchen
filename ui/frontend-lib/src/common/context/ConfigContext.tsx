@@ -89,6 +89,7 @@ export const ConfigProvider = ({
             notificationProviderRegistry
             storageProviderRegistry
             secretProviderRegistry
+            offeringRequestUrl
           }
           entities
           userApiPolicies
@@ -119,6 +120,7 @@ export const ConfigProvider = ({
         git_provider_registry: gql.gitProviderRegistry,
         storage_provider_registry: gql.storageProviderRegistry,
         secret_provider_registry: gql.secretProviderRegistry,
+        offering_request_url: gql.offeringRequestUrl,
         entities: response.entities,
       };
 
