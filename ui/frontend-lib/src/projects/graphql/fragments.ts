@@ -66,6 +66,7 @@ export const PROJECT_LIST_FIELDS = `
 const WORKSPACE_SHORT_FIELDS = `
   id
   name
+  workspaceProvider
 `;
 
 export const PROJECT_DETAIL_FIELDS = `

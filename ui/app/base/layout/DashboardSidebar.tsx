@@ -10,11 +10,11 @@ import BadgeIcon from "@mui/icons-material/Badge";
 import CodeIcon from "@mui/icons-material/Code";
 import ConstructionIcon from "@mui/icons-material/Construction";
 import DashboardIcon from "@mui/icons-material/Dashboard";
+import DiscountOutlinedIcon from "@mui/icons-material/DiscountOutlined";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
 import EngineeringIcon from "@mui/icons-material/Engineering";
 import ExtensionIcon from "@mui/icons-material/Extension";
 import FolderIcon from "@mui/icons-material/Folder";
-import HistoryIcon from "@mui/icons-material/History";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import KeyIcon from "@mui/icons-material/Key";
 import LanIcon from "@mui/icons-material/Lan";
@@ -98,7 +98,11 @@ export default function DashboardSidebar({
     return () => {};
   }, [expanded, theme.transitions.duration.leavingScreen]);
 
-  const mini = !disableCollapsibleSidebar && !expanded;
+  // On phones the sidebar is a temporary overlay drawer: it is either fully
+  // open or hidden, so it never uses the mini (icons-only) layout. Switching
+  // to mini while the drawer slides out made items jump around.
+  const isPhoneViewport = !isOverSmViewport;
+  const mini = !disableCollapsibleSidebar && !expanded && !isPhoneViewport;
 
   const handleSetSidebarExpanded = React.useCallback(
     (newExpanded: boolean) => () => {
@@ -239,7 +243,7 @@ export default function DashboardSidebar({
                   <DashboardSidebarPageItem
                     id="source_code_versions"
                     title="Template Versions"
-                    icon={<HistoryIcon />}
+                    icon={<DiscountOutlinedIcon />}
                     href="/source_code_versions"
                     selected={!!matchPath("/source_code_versions/*", pathname)}
                     permissionKey="source_code_version"
@@ -470,8 +474,8 @@ export default function DashboardSidebar({
     return {
       onPageItemClick: handlePageItemClick,
       mini,
-      fullyExpanded: isFullyExpanded,
-      fullyCollapsed: isFullyCollapsed,
+      fullyExpanded: isFullyExpanded || isPhoneViewport,
+      fullyCollapsed: isFullyCollapsed && !isPhoneViewport,
       hasDrawerTransitions,
     };
   }, [
@@ -479,6 +483,7 @@ export default function DashboardSidebar({
     mini,
     isFullyExpanded,
     isFullyCollapsed,
+    isPhoneViewport,
     hasDrawerTransitions,
   ]);
 

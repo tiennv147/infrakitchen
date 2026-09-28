@@ -56,7 +56,7 @@ class Service(BaseRevision):
         primaryjoin=lambda: Service.id == service_links.c.service_id,
         secondaryjoin=lambda: Service.id == service_links.c.depends_on_service_id,
         back_populates="dependents",
-        lazy="noload",
+        lazy="selectin",
         passive_deletes=True,
     )
     dependents: Mapped[list["Service"]] = relationship(
@@ -65,7 +65,7 @@ class Service(BaseRevision):
         primaryjoin=lambda: Service.id == service_links.c.depends_on_service_id,
         secondaryjoin=lambda: Service.id == service_links.c.service_id,
         back_populates="depends_on",
-        lazy="noload",
+        lazy="selectin",
         passive_deletes=True,
     )
 

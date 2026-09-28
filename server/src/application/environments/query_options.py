@@ -1,6 +1,6 @@
 from typing import Any
 
-from sqlalchemy.orm import joinedload, noload, selectinload
+from sqlalchemy.orm import joinedload, raiseload, selectinload
 
 from application.integrations.query_options import build_integration_query_options
 from application.projects.query_options import build_project_query_options
@@ -36,16 +36,17 @@ def build_environment_query_options(fields: FieldSpec | None = None) -> list[Any
         if name in fields:
             opts.append(joinedload(relation).options(*builder(fields[name])))
         else:
-            opts.append(noload(relation))
+            opts.append(raiseload(relation))
 
     collections = {
-        "integration_ids": (Environment.integration_ids, build_integration_query_options),
-        "parent_resources": (Environment.parent_resources, build_resource_query_options),
+        ("integrationIds", "integration_ids"): (Environment.integration_ids, build_integration_query_options),
+        ("parentResources", "parent_resources"): (Environment.parent_resources, build_resource_query_options),
     }
-    for name, (relation, builder) in collections.items():
-        if name in fields:
-            opts.append(selectinload(relation).options(*builder(fields[name])))
+    for keys, (relation, builder) in collections.items():
+        key = next((k for k in keys if k in fields), None)
+        if key is not None:
+            opts.append(selectinload(relation).options(*builder(fields[key])))
         else:
-            opts.append(noload(relation))
+            opts.append(raiseload(relation))
 
     return opts

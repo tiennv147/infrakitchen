@@ -103,4 +103,5 @@ class EnvironmentCRUD:
         await self.session.delete(environment)
 
     async def refresh(self, environment: Environment) -> None:
+        await self.session.flush()
         await self.session.refresh(environment)

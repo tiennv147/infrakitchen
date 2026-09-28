@@ -179,6 +179,7 @@ class EnvironmentService:
             case _:
                 raise ValueError("Invalid action")
 
+        await self.crud.refresh(existing)
         await self.audit_log_handler.create_log(
             existing.id, requester.id, body.action, revision_number=existing.revision_number
         )

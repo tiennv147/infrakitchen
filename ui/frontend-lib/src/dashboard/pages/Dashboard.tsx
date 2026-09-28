@@ -25,32 +25,11 @@ export const DashboardPage = () => {
 
   if (!loading && !hasResources) {
     return (
-      <PageContainer>
-        <Box sx={{ mb: 4, width: "80%", maxWidth: 1000 }}>
-          <Box>
-            {" "}
-            <Typography
-              variant="h5"
-              component="h1"
-              gutterBottom
-              sx={{ fontWeight: 600 }}
-            >
-              Dashboard
-            </Typography>
-            <Typography
-              variant="body1"
-              sx={{
-                color: "text.secondary",
-                mb: 6,
-              }}
-            >
-              Streamline your infrastructure management with our powerful
-              platform for composing, deploying, and managing infrastructure as
-              code.
-            </Typography>
-          </Box>
-          <GettingStartedContent />
-        </Box>
+      <PageContainer
+        title="Welcome"
+        description="Let's get your platform set up. Complete the steps below to start managing your infrastructure and services."
+      >
+        <GettingStartedContent />
       </PageContainer>
     );
   }
@@ -99,7 +78,11 @@ export const DashboardPage = () => {
       <Box
         sx={{
           display: "grid",
-          gridTemplateColumns: "minmax(300px, 30%) 1fr",
+          // Stack the widgets on small screens; side by side from md up.
+          gridTemplateColumns: {
+            xs: "minmax(0, 1fr)",
+            md: "minmax(300px, 30%) minmax(0, 1fr)",
+          },
           gap: 3,
           alignItems: "start",
           width: "100%",

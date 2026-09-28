@@ -2,7 +2,8 @@ import { ReactNode, useLayoutEffect, useRef, useState } from "react";
 
 import CallSplitOutlinedIcon from "@mui/icons-material/CallSplitOutlined";
 import LocalOfferOutlinedIcon from "@mui/icons-material/LocalOfferOutlined";
-import { Box } from "@mui/material";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import { Box, Tooltip } from "@mui/material";
 import { SxProps, Theme } from "@mui/system";
 
 import { ProviderIcon } from "../../../icons/Icons";
@@ -32,6 +33,8 @@ export interface EntityRecord {
   /** Populated for code repositories (``entityType === "source_code"``). */
   sourceCodeUrl?: string;
   sourceCodeProvider?: string;
+  /** Populated for workspaces (``entityType === "workspace"``). */
+  workspaceProvider?: string;
 }
 
 export interface EntityProps {
@@ -66,7 +69,7 @@ const ENTITY_TYPE_DISPLAY_NAMES: Record<string, string> = {
   source_code_version: "Template Version",
 };
 
-function humanizeEntityType(entityName?: string): string {
+export function humanizeEntityType(entityName?: string): string {
   if (!entityName) return "";
   if (ENTITY_TYPE_DISPLAY_NAMES[entityName]) {
     return ENTITY_TYPE_DISPLAY_NAMES[entityName];
@@ -209,14 +212,29 @@ export const Entity = ({
       />
     );
 
-    const lifecycleIndicator = entityType === "source_code_version" &&
+    const showLifecycle =
+      entityType === "source_code_version" &&
       showLifecycleState &&
-      entity.lifecycleState && (
-        <VersionLifecycleStateChip
-          lifecycleState={entity.lifecycleState}
-          breakingChanges={entity.breakingChanges ?? undefined}
-          variant={lifecycleVariant}
-        />
+      !!entity.lifecycleState;
+
+    // In the dense "dot" layout, the breaking-changes warning icon is shown
+    // separately after the name instead of bundled with the dot, so the
+    // order reads as: dot, ref icon, name, warning icon.
+    const lifecycleIndicator = showLifecycle && (
+      <VersionLifecycleStateChip
+        lifecycleState={entity.lifecycleState!}
+        breakingChanges={entity.breakingChanges ?? undefined}
+        variant={lifecycleVariant}
+        hideBreakingChangesWarning={lifecycleVariant === "dot"}
+      />
+    );
+    const hasBreakingChanges = Boolean(entity.breakingChanges?.trim());
+    const trailingBreakingChangesWarning = showLifecycle &&
+      lifecycleVariant === "dot" &&
+      hasBreakingChanges && (
+        <Tooltip title={entity.breakingChanges}>
+          <WarningAmberIcon color="warning" fontSize="small" />
+        </Tooltip>
       );
 
     content = (
@@ -229,6 +247,12 @@ export const Entity = ({
             size={providerIconSize}
           />
         )}
+        {entityType === "workspace" && (
+          <ProviderIcon
+            provider={entity.workspaceProvider}
+            size={providerIconSize}
+          />
+        )}
         {SourceCodeRefIcon && (
           <SourceCodeRefIcon
             color="action"
@@ -236,6 +260,7 @@ export const Entity = ({
           />
         )}
         {entityName}
+        {lifecycleVariant === "dot" && trailingBreakingChangesWarning}
         {lifecycleVariant !== "dot" && lifecycleIndicator}
       </>
     );

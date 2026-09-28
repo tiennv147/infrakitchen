@@ -1,6 +1,6 @@
 from typing import Any
 
-from sqlalchemy.orm import joinedload, noload, selectinload
+from sqlalchemy.orm import joinedload, raiseload, selectinload
 
 from application.environments.query_options import build_environment_query_options
 from application.resources.query_options import build_resource_query_options
@@ -24,20 +24,21 @@ def build_service_instance_query_options(fields: FieldSpec | None = None) -> lis
     opts: list[Any] = build_load_only(ServiceInstance, set(fields.keys()))
 
     joined = {
-        "service": (ServiceInstance.service, build_service_query_options),
-        "environment": (ServiceInstance.environment, build_environment_query_options),
-        "anchor_resource": (ServiceInstance.anchor_resource, build_resource_query_options),
-        "creator": (ServiceInstance.creator, build_user_query_options),
+        ("service",): (ServiceInstance.service, build_service_query_options),
+        ("environment",): (ServiceInstance.environment, build_environment_query_options),
+        ("anchorResource", "anchor_resource"): (ServiceInstance.anchor_resource, build_resource_query_options),
+        ("creator",): (ServiceInstance.creator, build_user_query_options),
     }
-    for name, (relation, builder) in joined.items():
-        if name in fields:
-            opts.append(joinedload(relation).options(*builder(fields[name])))
+    for keys, (relation, builder) in joined.items():
+        key = next((k for k in keys if k in fields), None)
+        if key is not None:
+            opts.append(joinedload(relation).options(*builder(fields[key])))
         else:
-            opts.append(noload(relation))
+            opts.append(raiseload(relation))
 
     if "resources" in fields:
         opts.append(selectinload(ServiceInstance.resources).joinedload(ServiceInstanceResource.resource))
     else:
-        opts.append(noload(ServiceInstance.resources))
+        opts.append(raiseload(ServiceInstance.resources))
 
     return opts
