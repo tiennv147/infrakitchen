@@ -37,4 +37,18 @@ def build_service_query_options(fields: FieldSpec | None = None) -> list[Any]:
     else:
         opts.append(raiseload(Service.owners))
 
+    for keys, relation in ((("dependsOn", "depends_on"), Service.depends_on), (("dependents",), Service.dependents)):
+        key = next((k for k in keys if k in fields), None)
+        if key is not None:
+            nested = fields[key] or {}
+            opts.append(
+                selectinload(relation).options(
+                    *build_load_only(Service, set(nested.keys())),
+                    raiseload(Service.depends_on),
+                    raiseload(Service.dependents),
+                )
+            )
+        else:
+            opts.append(raiseload(relation))
+
     return opts

@@ -33,6 +33,7 @@ DEFAULT_ENTITIES = [
     "notification_preference",
     "project",
     "service",
+    "environment",
 ]
 
 ADMIN_ENTITIES = [
@@ -46,6 +47,7 @@ INFRA_ENTITIES = [
     "integration",
     "secret",
     "storage",
+    "environment",
 ]
 
 
