@@ -35,6 +35,7 @@ class ModelActions(StrEnum):
     ENABLE = "enable"
     DOWNLOAD = "download"
     CASCADE_DESTROY = "cascade_destroy"
+    ADOPT = "adopt"
 
 
 @unique

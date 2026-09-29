@@ -4,6 +4,7 @@ export interface ClaimSpec {
   source_code_version_id: string | null;
   variables: Record<string, any>;
   parents: string[];
+  adopted?: boolean;
 }
 
 export interface ServiceSpec {

@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from application.resources.schema import ResourceCreate, Variables
+from application.resources.schema import ResourceCreate, ResourceUpdate, Variables
 from application.resources.service import ResourceService
 from application.source_code_versions.service import SourceCodeVersionService
 from application.templates.service import TemplateService
@@ -124,7 +124,10 @@ class WorkflowTask:
                 send_task=True,
             )
 
-        if step.status == ModelStatus.PENDING or (step.status == ModelStatus.ERROR and step.resource_id is None):
+        if step.status == ModelStatus.PENDING and step.resource_id is not None:
+            await self.change_step_status(step, new_status=ModelStatus.IN_PROGRESS)
+            await self.reconcile_existing_resource(step)
+        elif step.status == ModelStatus.PENDING or (step.status == ModelStatus.ERROR and step.resource_id is None):
             await self.change_step_status(
                 step,
                 new_status=ModelStatus.IN_PROGRESS,
@@ -205,6 +208,64 @@ class WorkflowTask:
                 )
         else:
             raise CannotProceed(f"Step {step.id} is in unexpected state {step.status} without resource")
+
+    async def reconcile_existing_resource(self, step: WorkflowStep) -> None:
+        """Bring a resource the step already points at to the step's variables and version, then run it."""
+        resource_id = step.resource_id
+        if resource_id is None:
+            raise CannotProceed(f"Step {step.id} has no resource to update")
+        resource = await self.resource_service.get_by_id(resource_id)
+        if not resource:
+            raise CannotProceed(f"Resource {step.resource_id} not found for step {step.id}")
+        if resource.state in (ModelState.DESTROY, ModelState.DESTROYED):
+            raise CannotProceed(f"Resource {resource.id} is {resource.state} and cannot be updated")
+
+        wanted = {**step.resolved_variables, **await self._resolve_wired_variables(step)}
+        current = {v.name: v.value for v in resource.variables}
+        changed = {name: value for name, value in wanted.items() if current.get(name) != value}
+        current_version = resource.source_code_version.id if resource.source_code_version else None
+        new_version = step.source_code_version_id if step.source_code_version_id != current_version else None
+
+        if changed or new_version:
+            variables = [
+                Variables(
+                    name=v.name,
+                    value=changed.get(v.name, v.value),
+                    sensitive=v.sensitive,
+                    type=v.type,
+                    description=v.description,
+                )
+                for v in resource.variables
+            ]
+            variables += [Variables(name=name, value=value) for name, value in changed.items() if name not in current]
+            update = ResourceUpdate(variables=variables)
+            if new_version:
+                update.source_code_version_id = new_version
+            self.logger.info(f"Updating resource {resource.id} for step {step.step_key}: {sorted(changed)}")
+            await self.resource_service.update_resource(str(resource.id), update, requester=self.user)
+            await self.resource_service.patch_action(
+                resource.id, PatchBodyModel(action=ModelActions.APPROVE), requester=self.user
+            )
+        elif resource.status == ModelStatus.APPROVAL_PENDING:
+            await self.resource_service.patch_action(
+                resource.id, PatchBodyModel(action=ModelActions.APPROVE), requester=self.user
+            )
+
+        resource = await self.resource_service.get_by_id(resource_id)
+        if not resource:
+            raise CannotProceed(f"Resource {step.resource_id} not found for step {step.id}")
+        if resource.state == ModelState.PROVISIONED and resource.status == ModelStatus.DONE:
+            step.completed_at = datetime.now(UTC)
+            await self.change_step_status(step, new_status=ModelStatus.DONE)
+            return
+
+        resource = await self.resource_service.patch_action(
+            resource.id,
+            PatchBodyModel(action=ModelActions.EXECUTE),
+            requester=self.user,
+            trace_id=str(self.workflow_pydantic.id),
+        )
+        await self.change_step_status(step, new_status=resource.status)
 
     async def execute_entity(self):
         self.logger.info(f"Executing workflow {self.workflow_pydantic.id}")
@@ -316,6 +377,21 @@ class WorkflowTask:
 
         response_model = WorkflowResponse.model_validate(self.workflow_instance)
         await self.event_sender.send_event(response_model, event_type)
+        if new_status in (ModelStatus.DONE, ModelStatus.ERROR):
+            await self._notify_parent()
+
+    async def _notify_parent(self) -> None:
+        parent_name = self.workflow_instance.parent_entity_name
+        parent_id = self.workflow_instance.parent_entity_id
+        if not parent_name or not parent_id:
+            return
+        await EventSender(entity_name=parent_name).send_task(
+            parent_id,
+            requester=self.user,
+            action=ModelActions.EXECUTE,
+            extra_metadata={"workflow_id": str(self.workflow_pydantic.id)},
+        )
+        self.logger.info(f"Notified {parent_name} {parent_id} that workflow finished")
 
     async def change_step_status(
         self,

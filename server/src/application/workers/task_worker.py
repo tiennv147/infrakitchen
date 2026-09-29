@@ -10,12 +10,14 @@ from sqlalchemy.exc import IntegrityError
 
 from application.executors.task import ExecutorTask
 from application.resources.task import ResourceTask
+from application.service_instances.task import ServiceInstanceTask
 from application.source_code_versions.task import SourceCodeVersionTask
 from application.source_codes.task import SourceCodeTask
 from application.storages.task import StorageTask
 from application.workers.utils import (
     get_workflow_task,
     get_executor_task,
+    get_service_instance_task,
     get_source_code_task,
     get_source_code_version_task,
     get_storage_task,
@@ -168,6 +170,7 @@ class TaskWorker(BaseMessagesWorker):
         | WorkspaceTask
         | ExecutorTask
         | WorkflowTask
+        | ServiceInstanceTask
     ):
         match entity_controller:
             case "source_code":
@@ -233,6 +236,15 @@ class TaskWorker(BaseMessagesWorker):
                     trace_id=trace_id,
                     step_id=step_id,
                     resource_id=resource_id,
+                )
+            case "service_instance":
+                return await get_service_instance_task(
+                    session=self.session,
+                    obj_id=obj_id,
+                    user=user,
+                    action=action,
+                    trace_id=trace_id,
+                    audit_log_id=audit_log_id,
                 )
             case _:
                 raise CannotProceed(f"Unknown entity controller: {entity_controller}")

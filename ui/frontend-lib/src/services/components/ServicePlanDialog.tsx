@@ -49,12 +49,14 @@ const formatValue = (value: unknown) =>
 interface ServicePlanDialogProps {
   open: boolean;
   serviceId: string;
+  initialEnvironmentId?: string;
   onClose: () => void;
 }
 
 export const ServicePlanDialog = ({
   open,
   serviceId,
+  initialEnvironmentId,
   onClose,
 }: ServicePlanDialogProps) => {
   const { ikApi } = useConfig();
@@ -66,6 +68,7 @@ export const ServicePlanDialog = ({
   useEffect(() => {
     if (!open) return;
     setPlan(null);
+    setEnvironmentId(initialEnvironmentId ?? "");
     ikApi
       .graphqlRequest<{ environments: GqlEnvironmentShort[] }>(
         ENVIRONMENTS_SHORT_QUERY,
@@ -79,7 +82,7 @@ export const ServicePlanDialog = ({
         ),
       )
       .catch(notifyError);
-  }, [ikApi, open]);
+  }, [ikApi, open, initialEnvironmentId]);
 
   useEffect(() => {
     if (!open || !environmentId) return;

@@ -72,6 +72,12 @@ class OwnedResource:
     storage_id: UUID | None = None
     storage_path: str | None = None
     workspace_id: UUID | None = None
+    state: str = "provisioned"
+    status: str = "done"
+
+    @property
+    def settled(self) -> bool:
+        return self.state.lower() == "provisioned" and self.status.lower() == "done"
 
 
 @dataclass(frozen=True)
@@ -142,9 +148,10 @@ def validate_spec_against_catalog(spec: ServiceSpec, catalog: Catalog) -> list[s
         if template is None:
             errors.append(f"Claim '{claim.alias}': template '{claim.template}' does not exist")
             continue
-        if not template.claimable or template.abstract:
+        # Adopted claims describe resources that already exist, whatever catalog status their template has.
+        if not claim.adopted and (not template.claimable or template.abstract):
             errors.append(f"Claim '{claim.alias}': template '{claim.template}' is not in the offering catalog")
-        elif not template.enabled:
+        elif not claim.adopted and not template.enabled:
             errors.append(f"Claim '{claim.alias}': template '{claim.template}' is disabled")
         if claim.source_code_version_id is not None:
             version = catalog.versions.get(claim.source_code_version_id)
@@ -226,6 +233,11 @@ def compile_service_spec(
             plan.errors.append(
                 f"Claim '{claim.alias}' changes template to '{template.key}'; "
                 "replacing a resource is not supported, use a new alias"
+            )
+            continue
+        if existing is not None and existing.state.lower() in ("destroy", "destroyed"):
+            plan.errors.append(
+                f"Claim '{claim.alias}': resource {existing.name} is {existing.state.lower()}; use a new alias"
             )
             continue
 
@@ -406,6 +418,15 @@ def _plan_existing(
             )
         )
         version_id = claim.source_code_version_id
+
+    if not existing.settled:
+        changes.append(
+            PlanChange(
+                field="state",
+                before=f"{existing.state.lower()}/{existing.status.lower()}",
+                after="provisioned/done",
+            )
+        )
 
     action = PlanAction.UPDATE if changes else PlanAction.NO_OP
     step = WorkflowStepCreate(

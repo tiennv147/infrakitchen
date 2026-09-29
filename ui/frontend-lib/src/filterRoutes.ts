@@ -407,6 +407,16 @@ const allRoutes: LazyRouteDefinition[] = [
     featureFlag: "services",
   },
   {
+    path: "/services/migrate",
+    Component: lz(
+      () => import("./services/pages/ServiceMigration"),
+      "ServiceMigrationPage",
+    ),
+    requiredPermission: "api:service",
+    permissionAction: "admin",
+    featureFlag: "services",
+  },
+  {
     path: "/services/:service_id/:tab?",
     Component: lz(() => import("./services/pages/Service"), "ServicePage"),
     requiredPermission: "api:service",

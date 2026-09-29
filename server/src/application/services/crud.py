@@ -252,6 +252,8 @@ class ServiceCRUD:
                 storage_id=link.resource.storage_id,
                 storage_path=link.resource.storage_path,
                 workspace_id=link.resource.workspace_id,
+                state=str(link.resource.state),
+                status=str(link.resource.status),
             )
             for link in instance.resources
         ]

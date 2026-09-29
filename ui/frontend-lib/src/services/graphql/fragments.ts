@@ -26,6 +26,7 @@ export const SERVICE_GRAPHQL_FIELDS = {
     "labels",
     "revisionNumber",
     "spec",
+    "specRevision",
     "createdAt",
     "updatedAt",
     "entityName",

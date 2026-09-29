@@ -51,6 +51,10 @@ class Workflow(Base):
     status: Mapped[str] = mapped_column(default=ModelStatus.PENDING)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Entity notified with an EXECUTE task when the workflow finishes (DONE or ERROR).
+    parent_entity_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    parent_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     creator: Mapped[User] = relationship("User", lazy="joined")
 

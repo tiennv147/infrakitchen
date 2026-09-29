@@ -50,6 +50,8 @@ class Service(BaseRevision):
 
     # Declarative ServiceSpec (claims); empty for services that only carry metadata.
     spec: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}", nullable=False)
+    # Bumped only when spec changes; instances compare it with their spec_revision_applied to detect drift.
+    spec_revision: Mapped[int] = mapped_column(default=1, server_default="1", nullable=False)
 
     creator: Mapped[User] = relationship("User", lazy="joined")
     owners: Mapped[list[User]] = relationship(secondary=service_owners, lazy="selectin")
