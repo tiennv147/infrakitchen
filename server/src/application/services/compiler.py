@@ -160,7 +160,7 @@ def validate_spec_against_catalog(spec: ServiceSpec, catalog: Catalog) -> list[s
                     f"Claim '{claim.alias}': version {claim.source_code_version_id} "
                     f"is not a version of '{claim.template}'"
                 )
-            elif not version.enabled:
+            elif not version.enabled and not claim.adopted:
                 errors.append(f"Claim '{claim.alias}': version {claim.source_code_version_id} is disabled")
 
     by_alias = {claim.alias: claim for claim in spec.claims}
