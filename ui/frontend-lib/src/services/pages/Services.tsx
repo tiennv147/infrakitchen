@@ -70,7 +70,15 @@ export const ServicesPage = () => {
   }, [fetchServices]);
 
   const actions = (
-    <Box>
+    <Box sx={{ display: "flex", gap: 1 }}>
+      <PermissionWrapper
+        requiredPermission="api:service"
+        permissionAction="admin"
+      >
+        <Button onClick={() => navigate(`${linkPrefix}services/migrate`)}>
+          From existing resources
+        </Button>
+      </PermissionWrapper>
       <PermissionWrapper
         requiredPermission="api:service"
         permissionAction="write"

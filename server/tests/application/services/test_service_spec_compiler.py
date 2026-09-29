@@ -136,6 +136,16 @@ class TestCatalogValidation:
         errors = validate_spec_against_catalog(spec, _catalog(redis, versions=(foreign,)))
         assert errors and "is not a version of 'redis'" in errors[0]
 
+    def test_disabled_version_is_rejected_for_new_claims_but_kept_for_adopted_ones(self):
+        redis = _template("redis")
+        disabled = CatalogVersion(id=uuid4(), template_id=redis.id, enabled=False)
+        catalog = _catalog(redis, versions=(disabled,))
+        claim = ClaimSpec(alias="cache", template="redis", source_code_version_id=disabled.id)
+
+        assert "is disabled" in validate_spec_against_catalog(ServiceSpec(claims=[claim]), catalog)[0]
+        adopted = claim.model_copy(update={"adopted": True})
+        assert validate_spec_against_catalog(ServiceSpec(claims=[adopted]), catalog) == []
+
     def test_explicit_parent_must_be_a_parent_template(self):
         redis, pg = _template("redis"), _template("pg")
         spec = ServiceSpec(

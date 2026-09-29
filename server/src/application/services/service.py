@@ -147,6 +147,8 @@ class ServiceService:
         if service.spec is not None:
             await self._validate_spec(service.spec)
             body["spec"] = service.spec.model_dump(mode="json")
+            if body["spec"] != (existing_service.spec or {}):
+                body["spec_revision"] = (existing_service.spec_revision or 1) + 1
 
         depends_on = body.pop("depends_on", None)
         depends_on_changed = False

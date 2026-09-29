@@ -89,6 +89,18 @@ export const ProjectServices = ({ projectId }: ProjectServicesProps) => {
       >
         <PermissionWrapper
           requiredPermission="api:service"
+          permissionAction="admin"
+        >
+          <Button
+            onClick={() =>
+              navigate(`${linkPrefix}services/migrate?project_id=${projectId}`)
+            }
+          >
+            From existing resources
+          </Button>
+        </PermissionWrapper>
+        <PermissionWrapper
+          requiredPermission="api:service"
           permissionAction="write"
         >
           <Button

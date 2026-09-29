@@ -29,6 +29,7 @@ export const ServiceContent = () => {
       content: (
         <ServiceEnvironments
           serviceId={entity.id}
+          specRevision={entity.specRevision ?? 1}
           canEdit={actions.includes("edit")}
         />
       ),

@@ -59,6 +59,7 @@ class TestSpecOnSave:
                     "source_code_version_id": None,
                     "variables": {"node_type": "cache.t4g.small"},
                     "parents": [],
+                    "adopted": False,
                 }
             ]
         }

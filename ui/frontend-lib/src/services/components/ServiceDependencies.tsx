@@ -70,6 +70,8 @@ export const ServiceDependencies = ({
     (key: string) => templates.find((t) => t.template === key)?.name ?? key,
     [templates],
   );
+  const inCatalog = (claim: ClaimSpec) =>
+    templates.some((t) => t.template === claim.template);
 
   const saveClaims = async (next: ClaimSpec[], message: string) => {
     try {
@@ -185,6 +187,11 @@ export const ServiceDependencies = ({
                 <TableRow key={claim.alias}>
                   <TableCell sx={{ fontFamily: "monospace" }}>
                     {claim.alias}
+                    {claim.adopted && (
+                      <Tooltip title="Reverse-compiled from an adopted resource">
+                        <Chip size="small" label="adopted" sx={{ ml: 1 }} />
+                      </Tooltip>
+                    )}
                   </TableCell>
                   <TableCell>{templateName(claim.template)}</TableCell>
                   <TableCell>
@@ -200,14 +207,23 @@ export const ServiceDependencies = ({
                   <TableCell>{Object.keys(claim.variables).length}</TableCell>
                   {canEdit && (
                     <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
-                      <Tooltip title="Edit claim">
-                        <IconButton
-                          size="small"
-                          aria-label={`Edit ${claim.alias}`}
-                          onClick={() => setEditing(claim)}
-                        >
-                          <EditOutlinedIcon fontSize="small" />
-                        </IconButton>
+                      <Tooltip
+                        title={
+                          inCatalog(claim)
+                            ? "Edit claim"
+                            : "Adopted from a template outside the catalog; change the resource instead"
+                        }
+                      >
+                        <span>
+                          <IconButton
+                            size="small"
+                            aria-label={`Edit ${claim.alias}`}
+                            onClick={() => setEditing(claim)}
+                            disabled={!inCatalog(claim)}
+                          >
+                            <EditOutlinedIcon fontSize="small" />
+                          </IconButton>
+                        </span>
                       </Tooltip>
                       <Tooltip title="Remove claim">
                         <IconButton

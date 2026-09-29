@@ -68,6 +68,15 @@ class ServiceInstance(BaseEntity):
     anchor_resource: Mapped[Resource | None] = relationship("Resource", lazy="joined")
 
     spec_revision_applied: Mapped[int | None] = mapped_column(nullable=True)
+    # Service.spec_revision the running reconcile compiled; becomes spec_revision_applied on success.
+    target_spec_revision: Mapped[int | None] = mapped_column(nullable=True)
+
+    # The workflow of the current or most recent run; cleared when a new run starts.
+    workflow_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workflows.id", name="fk_service_instance_workflow_id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     resources: Mapped[list[ServiceInstanceResource]] = relationship(
         "ServiceInstanceResource", lazy="selectin", cascade="all, delete-orphan"

@@ -28,9 +28,43 @@ from core.constants.model import ModelActions
 from core.errors import CannotProceed
 from application.resource_temp_state.crud import ResourceTempStateCrud
 from application.resource_temp_state.model import ResourceTempStateDTO
+from application.service_instances.crud import ServiceInstanceCRUD
+from application.service_instances.task import ServiceInstanceTask
+from application.services.dependencies import get_service_service
 from core.tasks.dependencies import get_task_service
 from core.users.model import UserDTO
 from core.utils.event_sender import EventSender
+
+
+async def get_service_instance_task(
+    session: AsyncSession,
+    obj_id: UUID,
+    user: UserDTO,
+    action: ModelActions,
+    trace_id: str | None = None,
+    audit_log_id: UUID | None = None,
+) -> ServiceInstanceTask:
+    crud = ServiceInstanceCRUD(session=session)
+    instance = await crud.get_by_id(obj_id)
+    if not instance:
+        raise CannotProceed(f"Service instance {obj_id} not found")
+    return ServiceInstanceTask(
+        session=session,
+        crud=crud,
+        service_service=get_service_service(session=session),
+        workflow_service=get_workflow_service(session=session),
+        instance=instance,
+        logger=EntityLogger(
+            entity_name="service_instance",
+            entity_id=instance.id,
+            revision_number=int(instance.revision_number),
+            trace_id=trace_id,
+            audit_log_id=audit_log_id,
+        ),
+        user=user,
+        event_sender=EventSender(entity_name="service_instance"),
+        action=action,
+    )
 
 
 async def get_source_code_task(

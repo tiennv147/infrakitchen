@@ -30,6 +30,7 @@ type GqlServiceDetailFieldTypes = {
   labels: string[] | null;
   revisionNumber: number;
   spec: ServiceSpec | null;
+  specRevision: number;
   createdAt: string;
   updatedAt: string;
   entityName: string;

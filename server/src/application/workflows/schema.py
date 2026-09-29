@@ -87,6 +87,8 @@ class WorkflowCreate(BaseModel):
     status: str = ModelStatus.PENDING
     created_by: uuid.UUID
     steps: list[WorkflowStepCreate] = Field(default_factory=list)
+    parent_entity_name: str | None = None
+    parent_entity_id: uuid.UUID | None = None
 
 
 class WorkflowStepUpdate(BaseModel):
@@ -149,6 +151,8 @@ class WorkflowResponse(BaseModel):
     steps: list[WorkflowStepResponse] = Field(default_factory=list)
     wiring_snapshot: list[WiringRule] = Field(default_factory=list)
     creator: UserShort | None = Field(default=None)
+    parent_entity_name: str | None = None
+    parent_entity_id: uuid.UUID | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
     created_at: datetime

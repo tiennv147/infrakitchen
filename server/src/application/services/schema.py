@@ -46,6 +46,9 @@ class ClaimSpec(BaseModel):
     parents: list[str] = Field(
         default_factory=list, description="Aliases of claims whose resources are parents of this one"
     )
+    adopted: bool = Field(
+        default=False, description="Reverse-compiled from an adopted resource; may use a non-catalog template"
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -171,6 +174,7 @@ class ServiceResponse(BaseModel):
     owners: list[UserShort] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
     spec: ServiceSpec = Field(default_factory=ServiceSpec)
+    spec_revision: int = Field(default=1)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -178,6 +182,11 @@ class ServiceResponse(BaseModel):
     @classmethod
     def _empty_spec(cls, value: Any) -> Any:
         return value or {}
+
+    @field_validator("spec_revision", mode="before")
+    @classmethod
+    def _default_spec_revision(cls, value: Any) -> Any:
+        return 1 if value is None else value
 
     @computed_field
     def _entity_name(self) -> str:

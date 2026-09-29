@@ -202,6 +202,7 @@ export const ClaimEditorDialog = ({
       parents: parents.filter((p) =>
         parentCandidates.some((c) => c.alias === p),
       ),
+      adopted: claim?.adopted ?? false,
     });
   };
 
