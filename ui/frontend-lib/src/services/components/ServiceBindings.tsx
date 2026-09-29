@@ -120,17 +120,18 @@ export const ServiceBindings = ({
   }, [spec, templates]);
 
   const keys = rows.map((r) => r.key);
-  const rowError = (row: BindingSpec) => {
+  const keyError = (row: BindingSpec) => {
     if (!KEY_PATTERN.test(row.key))
       return "Letters, digits, _ . - ; must not start with a digit";
     if (keys.filter((k) => k === row.key).length > 1) return "Key used twice";
-    const stray = row.value.replace(REF, "");
-    if (/\$\{[^}]*\}/.test(stray))
-      return "References look like ${alias.outputs.name}";
     return null;
   };
+  const valueError = (row: BindingSpec) =>
+    /\$\{[^}]*\}/.test(row.value.replace(REF, ""))
+      ? "References look like ${alias.outputs.name}"
+      : null;
   const dirty = JSON.stringify(rows) !== JSON.stringify(saved);
-  const invalid = rows.some((r) => rowError(r));
+  const invalid = rows.some((r) => keyError(r) || valueError(r));
 
   const update = (index: number, patch: Partial<BindingSpec>) =>
     setRows((current) =>
@@ -209,17 +210,22 @@ export const ServiceBindings = ({
             </TableHead>
             <TableBody>
               {rows.map((row, index) => {
-                const error = rowError(row);
+                const error = row.key ? keyError(row) : null;
+                const refError = valueError(row);
                 return (
-                  <TableRow key={index}>
+                  <TableRow
+                    key={index}
+                    sx={{ "& > td": { verticalAlign: "top", py: 1 } }}
+                  >
                     <TableCell sx={{ width: "25%" }}>
                       <TextField
                         size="small"
                         fullWidth
                         value={row.key}
                         disabled={!canEdit}
+                        placeholder="KEY"
                         error={!!error}
-                        helperText={error ?? " "}
+                        helperText={error}
                         onChange={(e) => update(index, { key: e.target.value })}
                       />
                     </TableCell>
@@ -229,7 +235,8 @@ export const ServiceBindings = ({
                         fullWidth
                         value={row.value}
                         disabled={!canEdit}
-                        helperText=" "
+                        error={!!refError}
+                        helperText={refError}
                         onChange={(e) =>
                           update(index, { value: e.target.value })
                         }
@@ -240,7 +247,7 @@ export const ServiceBindings = ({
                             display: "flex",
                             gap: 0.5,
                             flexWrap: "wrap",
-                            mt: -1,
+                            mt: 0.75,
                           }}
                         >
                           {suggestions.map((s) => (
@@ -261,9 +268,9 @@ export const ServiceBindings = ({
                       <TextField
                         select
                         size="small"
+                        fullWidth
                         value={row.scope}
                         disabled={!canEdit}
-                        helperText=" "
                         onChange={(e) =>
                           update(index, {
                             scope: e.target.value as BindingSpec["scope"],
@@ -279,7 +286,8 @@ export const ServiceBindings = ({
                         <Tooltip title="Remove binding">
                           <IconButton
                             size="small"
-                            aria-label={`Remove ${row.key}`}
+                            sx={{ mt: 0.25 }}
+                            aria-label={`Remove ${row.key || "binding"}`}
                             onClick={() =>
                               setRows((current) =>
                                 current.filter((_, i) => i !== index),
