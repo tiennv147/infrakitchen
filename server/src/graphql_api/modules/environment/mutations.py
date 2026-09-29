@@ -2,6 +2,7 @@ import uuid
 
 import strawberry
 from strawberry.experimental import pydantic as strawberry_pydantic
+from strawberry.scalars import JSON
 from strawberry.types import Info
 
 from application.environments.dependencies import get_environment_service
@@ -33,6 +34,7 @@ class EnvironmentCreateInput:
     integration_ids: list[uuid.UUID] = strawberry.field(default_factory=list)
     parent_resources: list[uuid.UUID] = strawberry.field(default_factory=list)
     approval_required: bool = False
+    binding_sink: JSON | None = None
     labels: list[str] = strawberry.field(default_factory=list)
 
 
@@ -52,6 +54,7 @@ class EnvironmentUpdateInput:
     integration_ids: list[uuid.UUID] | None = None
     parent_resources: list[uuid.UUID] | None = None
     approval_required: bool | None = None
+    binding_sink: JSON | None = None
     labels: list[str] | None = None
 
 

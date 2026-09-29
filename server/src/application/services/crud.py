@@ -145,6 +145,7 @@ class ServiceCRUD:
                 claimable=bool((t.configuration or {}).get("claimable")),
                 naming_convention=(t.configuration or {}).get("naming_convention"),
                 parent_template_ids=tuple(p.id for p in t.parents),
+                binding_outputs=tuple((t.configuration or {}).get("binding_outputs") or ()),
             )
             for t in templates
         }

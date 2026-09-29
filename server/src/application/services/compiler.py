@@ -27,6 +27,7 @@ class CatalogTemplate:
     claimable: bool
     naming_convention: str | None
     parent_template_ids: tuple[UUID, ...] = ()
+    binding_outputs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -180,6 +181,16 @@ def validate_spec_against_catalog(spec: ServiceSpec, catalog: Catalog) -> list[s
         _order(spec)
     except ValueError:
         errors.append("Claims reference each other in a cycle")
+
+    for binding in spec.bindings:
+        for ref in binding.refs():
+            claim = by_alias.get(ref.alias)
+            template = catalog.templates_by_key.get(claim.template) if claim else None
+            if template and template.binding_outputs and ref.output not in template.binding_outputs:
+                errors.append(
+                    f"Binding '{binding.key}': output '{ref.output}' of '{template.key}' is not published for "
+                    f"binding (allowed: {', '.join(template.binding_outputs)})"
+                )
     return errors
 
 

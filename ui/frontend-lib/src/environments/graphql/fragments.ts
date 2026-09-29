@@ -35,6 +35,7 @@ export const ENVIRONMENT_DETAIL_FIELDS = `
   storageId
   storagePathPrefix
   approvalRequired
+  bindingSink
   labels
   revisionNumber
   createdAt

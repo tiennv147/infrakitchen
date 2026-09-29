@@ -7,8 +7,15 @@ export interface ClaimSpec {
   adopted?: boolean;
 }
 
+export interface BindingSpec {
+  key: string;
+  value: string;
+  scope: "runtime" | "build";
+}
+
 export interface ServiceSpec {
   claims: ClaimSpec[];
+  bindings?: BindingSpec[];
 }
 
 export interface ServiceCreateRequest {

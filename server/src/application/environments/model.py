@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 import uuid
 
 from sqlalchemy import UUID, Column, DateTime, ForeignKey, JSON, Table, func
@@ -74,6 +75,8 @@ class Environment(BaseRevision):
     parent_resources: Mapped[list[Resource]] = relationship(secondary=environment_parent_resources, lazy="selectin")
 
     approval_required: Mapped[bool] = mapped_column(default=False)
+    # BindingSinkConfig; None means the default AWS Secrets Manager sink at config-{service_name}.
+    binding_sink: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     labels: Mapped[list[str]] = mapped_column(JSON, default=list)
     status: Mapped[ModelStatus] = mapped_column(

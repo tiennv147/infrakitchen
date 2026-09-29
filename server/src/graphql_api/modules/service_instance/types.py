@@ -3,6 +3,8 @@ import uuid
 import strawberry
 from strawberry_sqlalchemy_mapper import StrawberrySQLAlchemyMapper
 
+from application.service_instances.binding_delivery import BindingPreview
+from application.service_instances.bindings import MASK
 from application.service_instances.migration import MigrationProposal, ProposedResource
 from application.service_instances.model import ServiceInstance, ServiceInstanceResource
 from graphql_api.modules.environment.types import EnvironmentType
@@ -39,6 +41,66 @@ class ServiceInstanceType:
 
 
 service_instance_mapper.finalize()
+
+
+@strawberry.type
+class BindingItemType:
+    key: str
+    scope: str
+    value: str
+    sensitive: bool
+    sources: list[str]
+
+
+@strawberry.type
+class ServiceBindingsType:
+    deployed: bool
+    sink: str
+    path: str | None
+    namespace: str | None
+    secret_provider_class: str | None
+    manage_secret_provider_class: bool
+    mount_path: str | None
+    runtime: list[BindingItemType]
+    build: list[BindingItemType]
+    errors: list[str]
+    applied_keys: list[str]
+    applied_at: str | None
+    applied_path: str | None
+
+    @staticmethod
+    def from_preview(preview: BindingPreview, deployed: bool) -> "ServiceBindingsType":
+        target = preview.target
+        applied = preview.applied or {}
+
+        def items(scope: str) -> list[BindingItemType]:
+            return [
+                BindingItemType(
+                    key=i.key,
+                    scope=i.scope,
+                    value=MASK if scope == "runtime" else i.value,
+                    sensitive=i.sensitive,
+                    sources=i.sources,
+                )
+                for i in preview.rendered.items
+                if i.scope == scope
+            ]
+
+        return ServiceBindingsType(
+            deployed=deployed,
+            sink=target.config.type,
+            path=target.path,
+            namespace=target.namespace or None,
+            secret_provider_class=target.secret_provider_class,
+            manage_secret_provider_class=target.config.secret_provider_class,
+            mount_path=target.mount_path,
+            runtime=items("runtime"),
+            build=items("build"),
+            errors=preview.rendered.errors,
+            applied_keys=list(applied.get("keys", [])),
+            applied_at=applied.get("applied_at"),
+            applied_path=applied.get("path"),
+        )
 
 
 @strawberry.type
