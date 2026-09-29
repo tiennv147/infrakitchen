@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import {
   Alert,
   Box,
-  Button,
   Chip,
   CircularProgress,
   MenuItem,
@@ -105,7 +104,7 @@ export const ServicePlanDialog = ({
       maxWidth="lg"
       title="Plan preview"
       content={
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 2 }}>
           <Typography variant="body2" color="text.secondary">
             A dry run of the service spec against one environment. Nothing is
             created, changed or destroyed.
@@ -236,7 +235,6 @@ export const ServicePlanDialog = ({
           )}
         </Box>
       }
-      actions={<Button onClick={onClose}>Close</Button>}
     />
   );
 };

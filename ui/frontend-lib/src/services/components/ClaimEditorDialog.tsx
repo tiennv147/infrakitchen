@@ -242,7 +242,7 @@ export const ClaimEditorDialog = ({
       maxWidth="md"
       title={isNew ? "Add claim" : `Edit claim ${claim?.alias}`}
       content={
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 2 }}>
           <Box sx={{ display: "flex", gap: 2 }}>
             <TextField
               label="Alias"
@@ -412,12 +412,9 @@ export const ClaimEditorDialog = ({
         </Box>
       }
       actions={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="contained" onClick={save} disabled={!template}>
-            {isNew ? "Add" : "Update"}
-          </Button>
-        </>
+        <Button variant="contained" onClick={save}>
+          {isNew ? "Add" : "Update"}
+        </Button>
       }
     />
   );
