@@ -278,16 +278,9 @@ export const ServiceEnvironments = ({
           </Typography>
         }
         actions={
-          <>
-            <Button onClick={() => setPendingRemoval(null)}>Cancel</Button>
-            <Button
-              color="error"
-              variant="contained"
-              onClick={removeEnvironment}
-            >
-              Remove
-            </Button>
-          </>
+          <Button color="error" variant="contained" onClick={removeEnvironment}>
+            Remove
+          </Button>
         }
       />
     </Box>

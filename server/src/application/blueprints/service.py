@@ -4,6 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from application.blueprints.model import blueprint_workflows
+from application.workflows.functions import topological_levels
 from application.workflows.model import Workflow
 from application.workflows.schema import WorkflowCreate, WorkflowRequest, WorkflowStepCreate
 from application.workflows.service import WorkflowService
@@ -269,38 +270,12 @@ class BlueprintService:
         Returns list of (template_id, position) tuples where position is the
         BFS level - templates at the same level can execute in parallel.
         """
-        id_set = set(template_ids)
-
-        # Build adjacency: source → targets
-        graph: dict[UUID, set[UUID]] = defaultdict(set)
-        in_degree: dict[UUID, int] = {tid: 0 for tid in template_ids}
-
-        for rule in wiring_rules:
-            if rule.source_template_id in id_set and rule.target_template_id in id_set:
-                if rule.target_template_id not in graph[rule.source_template_id]:
-                    graph[rule.source_template_id].add(rule.target_template_id)
-                    in_degree[rule.target_template_id] = in_degree.get(rule.target_template_id, 0) + 1
-
-        # Kahn's algorithm with level tracking
-        queue = [tid for tid in template_ids if in_degree.get(tid, 0) == 0]
-        result: list[tuple[UUID, int]] = []
-        level = 0
-
-        while queue:
-            next_queue: list[UUID] = []
-            for node in queue:
-                result.append((node, level))
-                for neighbor in graph.get(node, set()):
-                    in_degree[neighbor] -= 1
-                    if in_degree[neighbor] == 0:
-                        next_queue.append(neighbor)
-            queue = next_queue
-            level += 1
-
-        if len(result) != len(template_ids):
-            raise ValueError("Circular dependency detected in blueprint wiring")
-
-        return result
+        try:
+            return topological_levels(
+                template_ids, ((rule.source_template_id, rule.target_template_id) for rule in wiring_rules)
+            )
+        except ValueError as e:
+            raise ValueError("Circular dependency detected in blueprint wiring") from e
 
     @staticmethod
     def _resolve_variables_for_step(

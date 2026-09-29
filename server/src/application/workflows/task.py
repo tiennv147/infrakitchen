@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 import logging
 from typing import Any
-from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -78,7 +77,14 @@ class WorkflowTask:
                 raise CannotProceed(f"Template {template.id} does not have a naming convention defined")
 
             parent_resources = [r.id for r in step.parent_resource_ids]
-            if not parent_resources and template.parents:
+            if step.parent_step_keys:
+                steps_by_key = {s.step_key: s for s in self.workflow_instance.steps if s.step_key}
+                for key in step.parent_step_keys:
+                    parent_step = steps_by_key.get(key)
+                    if parent_step is None or parent_step.resource_id is None:
+                        raise CannotProceed(f"Parent step '{key}' has no resource yet for step {step.id}")
+                    parent_resources.append(parent_step.resource_id)
+            elif not parent_resources and template.parents:
                 parent_resources = [
                     stp.resource_id
                     for stp in self.workflow_instance.steps
@@ -103,8 +109,9 @@ class WorkflowTask:
                 dependency_config=[],
                 dependency_tags=[],
                 storage_id=step.storage_id,
-                storage_path=f"service-catalog/{template.template}/{template.configuration.naming_convention}/terraform.tfstate",
-                workspace_id=None,
+                storage_path=step.storage_path
+                or f"service-catalog/{template.template}/{template.configuration.naming_convention}/terraform.tfstate",
+                workspace_id=step.workspace_id,
             )
             created_resource = await self.resource_service.create(
                 resource=resource,
@@ -343,7 +350,10 @@ class WorkflowTask:
         """
         Resolve wired variables from completed upstream resources and constant blocks.
 
-        For each wiring rule targeting this step's template:
+        Steps and rules are matched by step key, which falls back to the template id so
+        blueprint workflows (one step per template) keep working unchanged.
+
+        For each wiring rule targeting this step:
         - If source is a completed step with a resource:
           - Regular outputs → use the source resource's output value
         - If source has no step (constant/external block):
@@ -351,19 +361,18 @@ class WorkflowTask:
             the same constant output via wiring
         """
         wired_vars: dict[str, Any] = {}
-        template_id_str = step.template_id
-        step_by_template: dict[UUID, WorkflowStepResponse] = {s.template_id: s for s in self.workflow_pydantic.steps}
+        step_key = step.step_key or str(step.template_id)
+        step_by_key: dict[str, WorkflowStepResponse] = {s.key(): s for s in self.workflow_pydantic.steps}
 
         for rule in self.workflow_pydantic.wiring_snapshot:
-            source_tid = rule.source_template_id
-            target_tid = rule.target_template_id
+            source_key = rule.source_key()
 
-            if target_tid != template_id_str:
+            if rule.target_key() != step_key:
                 continue
 
             source_output: str = rule.source_output
             target_variable: str = rule.target_variable
-            source_step = step_by_template.get(source_tid)
+            source_step = step_by_key.get(source_key)
 
             if source_step and source_step.resource_id and source_step.status == ModelStatus.DONE:
                 # Fetch resource (cached)
@@ -386,11 +395,11 @@ class WorkflowTask:
                 # the same output from this constant via another wiring rule.
                 for other_rule in self.workflow_pydantic.wiring_snapshot:
                     if (
-                        other_rule.source_template_id == source_tid
+                        other_rule.source_key() == source_key
                         and other_rule.source_output == source_output
-                        and other_rule.target_template_id != template_id_str
+                        and other_rule.target_key() != step_key
                     ):
-                        other_step = step_by_template.get(other_rule.target_template_id)
+                        other_step = step_by_key.get(other_rule.target_key())
                         if other_step and other_step.status == ModelStatus.DONE:
                             other_var = other_rule.target_variable
                             if other_var in other_step.resolved_variables:
@@ -399,7 +408,7 @@ class WorkflowTask:
                 else:
                     if target_variable not in wired_vars:
                         self.logger.warning(
-                            f"Could not resolve constant wire {source_tid}:{source_output} → {target_variable}"
+                            f"Could not resolve constant wire {source_key}:{source_output} → {target_variable}"
                         )
 
         return wired_vars

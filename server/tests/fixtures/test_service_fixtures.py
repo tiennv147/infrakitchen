@@ -19,6 +19,9 @@ def mock_service_crud():
     crud.update = AsyncMock()
     crud.delete = AsyncMock()
     crud.refresh = AsyncMock()
+    crud.load_catalog = AsyncMock()
+    crud.load_environment_target = AsyncMock()
+    crud.load_instance = AsyncMock(return_value=(None, None, []))
     crud.session = Mock()
     crud.session.execute = AsyncMock()
     return crud
@@ -75,4 +78,5 @@ def mocked_service(mocked_user, mocked_project):
         updated_at=datetime.now(),
         owners=[],
         labels=["test_label"],
+        spec={},
     )

@@ -9,6 +9,7 @@ from sqlalchemy.sql import union_all
 from application.resources.model import Resource
 from application.source_code_versions.model import SourceCodeVersion
 
+from core.constants.model import ModelStatus
 from core.database import (
     FieldSpec,
     evaluate_sqlalchemy_filters,
@@ -50,6 +51,20 @@ class TemplateCRUD:
         statement = evaluate_sqlalchemy_sorting(Template, statement, sort)
         statement = evaluate_sqlalchemy_pagination(statement, range)
 
+        statement = statement.options(*build_template_query_options(fields))
+        result = await self.session.execute(statement)
+        return list(result.scalars().unique().all())
+
+    async def get_claimable(self, fields: FieldSpec | None = None) -> list[Template]:
+        statement = (
+            select(Template)
+            .where(
+                Template.status == ModelStatus.ENABLED,
+                Template.abstract.is_(False),
+                Template.configuration["claimable"].as_boolean().is_(True),
+            )
+            .order_by(Template.name)
+        )
         statement = statement.options(*build_template_query_options(fields))
         result = await self.session.execute(statement)
         return list(result.scalars().unique().all())

@@ -8,7 +8,7 @@ from strawberry.types import Info
 
 from core.adapters.provider_adapters import IntegrationProvider, SecretProviderAdapter, StorageProviderAdapter
 from core.auth_providers.dependencies import get_auth_provider_service
-from core.config import InfrakitchenConfig
+from core.config import InfrakitchenConfig, Settings
 from core.utils.entities import get_all_entities
 from core.workers.functions import get_host_metadata
 from graphql_api.helpers import IsAuthenticated
@@ -25,6 +25,11 @@ class GlobalConfigType:
     notification_provider_registry: list[str]
     storage_provider_registry: list[str]
     secret_provider_registry: list[str]
+    offering_request_url: str | None
+
+
+def _http_url_or_none(url: str) -> str | None:
+    return url if urlparse(url).scheme in ("http", "https") else None
 
 
 @strawberry.type
@@ -139,6 +144,7 @@ class ConfigQuery:
             notification_provider_registry=notification_provider_registry,
             storage_provider_registry=list(StorageProviderAdapter.adapters.keys()),
             secret_provider_registry=list(SecretProviderAdapter.adapters.keys()),
+            offering_request_url=_http_url_or_none(Settings().OFFERING_REQUEST_URL),
         )
 
     @strawberry.field(permission_classes=[IsAuthenticated])

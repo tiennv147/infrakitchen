@@ -15,7 +15,7 @@ from graphql_api.helpers import (
     parse_range,
     parse_sort,
 )
-from graphql_api.modules.service.types import ServiceType
+from graphql_api.modules.service.types import ServicePlanType, ServiceType
 
 
 def _build_service(info: Info) -> ServiceService:
@@ -70,3 +70,11 @@ class ServiceQuery:
         service = _build_service(info)
         requester = info.context["request"].state.user
         return await service.get_actions(service_id=id, requester=requester)
+
+    @strawberry.field(permission_classes=[IsAuthenticated])
+    async def service_plan(self, info: Info, service_id: uuid.UUID, environment_id: uuid.UUID) -> ServicePlanType:
+        """Dry run: what applying the service spec to this environment would create, update or destroy."""
+        await check_api_permission(info, "service", ["read"])
+        service = _build_service(info)
+        requester = info.context["request"].state.user
+        return ServicePlanType.from_plan(await service.plan(service_id, environment_id, requester))

@@ -1,6 +1,13 @@
 import { useCallback, useState } from "react";
 
-import { Box, Divider, TextField } from "@mui/material";
+import {
+  Box,
+  Chip,
+  Divider,
+  FormControlLabel,
+  Switch,
+  TextField,
+} from "@mui/material";
 
 import { OverviewCard } from "../../common/components/cards/OverviewCard";
 import { InlineCode } from "../../common/components/code/InlineCode";
@@ -44,6 +51,8 @@ export const TemplateOverview = ({ template }: TemplateAboutProps) => {
   const { refreshEntity } = useEntityProvider();
   const { checkActionPermission } = usePermissionProvider();
   const canEdit = checkActionPermission("api:template", "write");
+  const canPublish =
+    checkActionPermission("api:template", "admin") && !template.abstract;
 
   const [buffer, setBuffer] = useState<Record<string, IkEntity[]>>({});
 
@@ -362,6 +371,69 @@ export const TemplateOverview = ({ template }: TemplateAboutProps) => {
             onChange={onChange}
             label="Required Configuration Variables"
             helperText="Press Enter to add a variable name"
+          />
+        )}
+        size={6}
+      />
+      <Box sx={{ width: "100%", my: 1 }}>
+        <Divider />
+      </Box>
+      <CommonEditableField<boolean>
+        name={"Offering Catalog"}
+        canEdit={canPublish}
+        value={template.configuration?.claimable ?? false}
+        ariaLabel="Edit offering catalog"
+        display={
+          template.abstract ? (
+            <PlaceholderText text="Abstract templates cannot be claimed" />
+          ) : (
+            <Chip
+              size="small"
+              color={template.configuration?.claimable ? "success" : "default"}
+              label={
+                template.configuration?.claimable
+                  ? "Claimable by services"
+                  : "Not published"
+              }
+            />
+          )
+        }
+        onSave={(value) => saveConfiguration({ claimable: value })}
+        renderEditor={({ value, onChange }) => (
+          <FormControlLabel
+            control={
+              <Switch
+                checked={value}
+                onChange={(event) => onChange(event.target.checked)}
+              />
+            }
+            label="Services may claim resources of this template"
+          />
+        )}
+        size={6}
+      />
+      <CommonEditableField<string[]>
+        name={"Binding Outputs"}
+        canEdit={canPublish}
+        value={template.configuration?.binding_outputs ?? []}
+        ariaLabel="Edit binding outputs"
+        isEqual={sameStringSet}
+        display={
+          (template.configuration?.binding_outputs ?? []).length ? (
+            <StringChips
+              values={template.configuration?.binding_outputs ?? []}
+            />
+          ) : (
+            <PlaceholderText />
+          )
+        }
+        onSave={(value) => saveConfiguration({ binding_outputs: value })}
+        renderEditor={({ value, onChange }) => (
+          <StringTagEditor
+            value={value}
+            onChange={onChange}
+            label="Binding Outputs"
+            helperText="Outputs a claiming service may bind into its configuration"
           />
         )}
         size={6}

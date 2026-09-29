@@ -62,6 +62,13 @@ class TemplateQuery:
         )
 
     @strawberry.field(permission_classes=[IsAuthenticated])
+    async def claimable_templates(self, info: Info) -> list[TemplateType]:
+        await check_api_permission(info, "template", ["read"])
+        service = _build_service(info)
+        entity_fields = get_entity_selection(info.selected_fields, "claimableTemplates")
+        return await service.query_claimable(fields=build_field_spec(entity_fields))
+
+    @strawberry.field(permission_classes=[IsAuthenticated])
     async def templates_count(
         self,
         info: Info,

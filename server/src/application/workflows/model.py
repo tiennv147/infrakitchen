@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any
 import uuid
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import UUID, Column, DateTime, ForeignKey, JSON, Table, func, Integer, Text
+from sqlalchemy import UUID, Column, DateTime, ForeignKey, Index, JSON, String, Table, func, Integer, Text, text
 
 from application.integrations.model import Integration
 from application.secrets.model import Secret
@@ -70,6 +70,15 @@ class Workflow(Base):
 
 class WorkflowStep(Base):
     __tablename__: str = "workflow_steps"
+    __table_args__ = (
+        Index(
+            "uq_workflow_steps_workflow_step_key",
+            "workflow_id",
+            "step_key",
+            unique=True,
+            postgresql_where=text("step_key IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     workflow_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"))
@@ -91,6 +100,13 @@ class WorkflowStep(Base):
     integration_ids: Mapped[list[Integration]] = relationship(secondary=workflow_step_integrations, lazy="selectin")
     secret_ids: Mapped[list[Secret]] = relationship(secondary=workflow_step_secrets, lazy="selectin")
     storage_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Identifies the step within its workflow when several steps share a template; None for blueprint workflows.
+    step_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Keys of sibling steps whose resources become this step's parents once created.
+    parent_step_keys: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     position: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(default=ModelStatus.PENDING)

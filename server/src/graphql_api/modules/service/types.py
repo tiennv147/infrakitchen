@@ -1,8 +1,10 @@
 import uuid
 
 import strawberry
+from strawberry.scalars import JSON
 from strawberry_sqlalchemy_mapper import StrawberrySQLAlchemyMapper
 
+from application.services.compiler import PlanAction, ServicePlan
 from application.services.model import Service
 from graphql_api.modules.project.types import ProjectType
 from graphql_api.modules.user.types import UserType
@@ -30,3 +32,73 @@ class ServiceType:
 
 
 service_mapper.finalize()
+
+
+@strawberry.type
+class ServicePlanChangeType:
+    field: str
+    before: JSON | None = None
+    after: JSON | None = None
+
+
+@strawberry.type
+class ServicePlanItemType:
+    alias: str
+    action: str
+    role: str
+    template: str | None
+    template_id: uuid.UUID | None
+    resource_id: uuid.UUID | None
+    resource_name: str | None
+    position: int | None
+    source_code_version_id: uuid.UUID | None
+    storage_path: str | None
+    parents: list[str]
+    wires: list[str]
+    changes: list[ServicePlanChangeType]
+
+
+@strawberry.type
+class ServicePlanType:
+    service_id: uuid.UUID
+    environment_id: uuid.UUID
+    service_instance_id: uuid.UUID | None
+    items: list[ServicePlanItemType]
+    errors: list[str]
+    creates: int
+    updates: int
+    no_ops: int
+    destroys: int
+
+    @staticmethod
+    def from_plan(plan: ServicePlan) -> "ServicePlanType":
+        return ServicePlanType(
+            service_id=plan.service_id,
+            environment_id=plan.environment_id,
+            service_instance_id=plan.service_instance_id,
+            items=[
+                ServicePlanItemType(
+                    alias=item.alias,
+                    action=item.action.value,
+                    role=item.role,
+                    template=item.template,
+                    template_id=item.template_id,
+                    resource_id=item.resource_id,
+                    resource_name=item.resource_name,
+                    position=item.position,
+                    source_code_version_id=item.source_code_version_id,
+                    storage_path=item.storage_path,
+                    parents=item.parents,
+                    wires=item.wires,
+                    changes=[
+                        ServicePlanChangeType(field=c.field, before=c.before, after=c.after) for c in item.changes
+                    ],
+                )
+                for item in plan.items
+            ],
+            errors=plan.errors,
+            creates=plan.count(PlanAction.CREATE),
+            updates=plan.count(PlanAction.UPDATE),
+            no_ops=plan.count(PlanAction.NO_OP),
+            destroys=plan.count(PlanAction.DESTROY),
+        )
