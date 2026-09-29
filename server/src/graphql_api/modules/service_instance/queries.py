@@ -5,9 +5,17 @@ import strawberry
 from strawberry.scalars import JSON
 from strawberry.types import Info
 
+from application.environments.model import Environment
+from application.service_instances.binding_delivery import BindingPreview
+from application.service_instances.binding_delivery import preview as binding_preview
+from application.service_instances.crud import ServiceInstanceCRUD
 from application.service_instances.dependencies import get_service_instance_service
 from application.service_instances.migration import list_anchors, propose
+from application.service_instances.model import ServiceInstance
 from application.service_instances.service import ServiceInstanceService
+from application.services.model import Service
+from core.errors import AccessDenied, EntityNotFound
+from core.users.functions import user_has_access_to_entity
 from graphql_api.helpers import (
     IsAuthenticated,
     build_field_spec,
@@ -16,11 +24,27 @@ from graphql_api.helpers import (
     parse_range,
     parse_sort,
 )
-from graphql_api.modules.service_instance.types import MigrationAnchorType, MigrationProposalType, ServiceInstanceType
+from graphql_api.modules.service_instance.types import (
+    MigrationAnchorType,
+    MigrationProposalType,
+    ServiceBindingsType,
+    ServiceInstanceType,
+)
 
 
 def _build_service(info: Info) -> ServiceInstanceService:
     return get_service_instance_service(info.context["session"])
+
+
+async def _binding_preview(info: Info, service_id: uuid.UUID, environment_id: uuid.UUID) -> tuple[BindingPreview, bool]:
+    session = info.context["session"]
+    service = await session.get(Service, service_id)
+    environment = await session.get(Environment, environment_id)
+    if service is None or environment is None:
+        raise EntityNotFound("Service or environment not found")
+    instance = await ServiceInstanceCRUD(session=session).get_by_service_environment(service_id, environment_id)
+    placeholder = ServiceInstance(resources=[], binding_state=None)
+    return binding_preview(instance or placeholder, service, environment), instance is not None
 
 
 @strawberry.type
@@ -60,6 +84,28 @@ class ServiceInstanceQuery:
         await check_api_permission(info, "service", ["read"])
         requester = info.context["request"].state.user
         return await _build_service(info).get_actions(id, requester)
+
+    @strawberry.field(permission_classes=[IsAuthenticated])
+    async def service_bindings(
+        self, info: Info, service_id: uuid.UUID, environment_id: uuid.UUID
+    ) -> ServiceBindingsType:
+        """Read-only preview of what the service's bindings resolve to in one environment."""
+        await check_api_permission(info, "service", ["read"])
+        preview, deployed = await _binding_preview(info, service_id, environment_id)
+        return ServiceBindingsType.from_preview(preview, deployed)
+
+    @strawberry.field(permission_classes=[IsAuthenticated])
+    async def service_build_bindings(self, info: Info, service_id: uuid.UUID, environment_id: uuid.UUID) -> JSON:
+        """Build-scope bindings for CI, e.g. {"ECR_REPO": "..."}. Never contains sensitive outputs."""
+        await check_api_permission(info, "service", ["read"])
+        requester = info.context["request"].state.user
+        if not await user_has_access_to_entity(requester, service_id, "read", "service"):
+            raise AccessDenied("Access denied to this service's bindings")
+        preview, _ = await _binding_preview(info, service_id, environment_id)
+        build_errors = preview.rendered.errors_for("build")
+        if build_errors:
+            raise ValueError("; ".join(build_errors))
+        return cast(JSON, cast(object, preview.rendered.payload("build")))
 
     @strawberry.field(permission_classes=[IsAuthenticated])
     async def service_migration_anchors(

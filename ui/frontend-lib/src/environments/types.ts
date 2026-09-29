@@ -3,6 +3,20 @@ export type EnvironmentTier = (typeof ENVIRONMENT_TIERS)[number];
 
 type GqlRef = { id: string; name: string };
 
+export type BindingSinkType =
+  "aws_secrets_manager" | "kubernetes_secret" | "none";
+
+export interface BindingSinkConfig {
+  type?: BindingSinkType;
+  path_template?: string;
+  integration_id?: string | null;
+  region?: string | null;
+  cluster_resource_id?: string | null;
+  namespace?: string | null;
+  secret_provider_class?: boolean;
+  secret_provider_class_name?: string;
+}
+
 export interface GqlEnvironmentShort {
   id: string;
   name: string;
@@ -23,6 +37,7 @@ export interface GqlEnvironment extends GqlEnvironmentShort {
   storageId: string | null;
   storagePathPrefix: string | null;
   approvalRequired: boolean;
+  bindingSink: BindingSinkConfig | null;
   labels: string[];
   revisionNumber: number;
   createdAt: string;
@@ -50,6 +65,7 @@ export interface EnvironmentCreateRequest {
   integrationIds: string[];
   parentResources: string[];
   approvalRequired: boolean;
+  bindingSink?: BindingSinkConfig | null;
   labels: string[];
 }
 

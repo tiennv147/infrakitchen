@@ -218,3 +218,47 @@ class TestDestroy:
         task.crud.remove_links.assert_awaited_once_with([owned.id])
         assert task.instance.spec_revision_applied is None
         assert (task.instance.state, task.instance.status) == (ModelState.DESTROYED, ModelStatus.DONE)
+
+
+class TestBindingsStep:
+    def _with_delivery(self, task, *, apply=None, remove=None):
+        delivery = Mock(apply=apply or AsyncMock(return_value=None), remove=remove or AsyncMock())
+        task.binding_delivery = delivery
+        task.session.get = AsyncMock(return_value=SimpleNamespace(name="dev"))
+        return delivery
+
+    @pytest.mark.asyncio
+    async def test_bindings_are_written_before_the_instance_is_marked_done(self, monkeypatch):
+        task = _task(monkeypatch, spec={"claims": []})
+        task.service_service.compile.return_value = _compiled()
+        state = {"sink": "aws_secrets_manager", "path": "config-svc", "keys": ["A"]}
+        self._with_delivery(task, apply=AsyncMock(return_value=state))
+
+        await task.start_pipeline()
+
+        assert task.instance.binding_state == state
+        assert (task.instance.state, task.instance.status) == (ModelState.PROVISIONED, ModelStatus.DONE)
+
+    @pytest.mark.asyncio
+    async def test_sink_failure_fails_the_instance_and_keeps_it_out_of_date(self, monkeypatch):
+        task = _task(monkeypatch, spec={"claims": []})
+        task.service_service.compile.return_value = _compiled()
+        self._with_delivery(task, apply=AsyncMock(side_effect=RuntimeError("AccessDenied")))
+
+        await task.start_pipeline()
+
+        assert task.instance.status == ModelStatus.ERROR
+        assert task.instance.spec_revision_applied is None
+        task.logger.error.assert_called_with("Bindings failed: AccessDenied")
+
+    @pytest.mark.asyncio
+    async def test_destroy_removes_bindings(self, monkeypatch):
+        task = _task(monkeypatch, state=ModelState.DESTROY, links=[_link("shared", role="referenced")])
+        task.instance.binding_state = {"path": "config-svc"}
+        delivery = self._with_delivery(task)
+
+        await task.start_pipeline()
+
+        delivery.remove.assert_awaited_once()
+        assert task.instance.binding_state is None
+        assert task.instance.state == ModelState.DESTROYED

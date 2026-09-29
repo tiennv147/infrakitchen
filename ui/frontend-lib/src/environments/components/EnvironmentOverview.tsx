@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { Box, Chip } from "@mui/material";
 
 import { OverviewCard } from "../../common/components/cards/OverviewCard";
+import { CommonEditableField } from "../../common/components/editors/CommonEditableField";
 import { EditableDescriptionField } from "../../common/components/editors/EditableDescriptionField";
 import { EditableTagsField } from "../../common/components/editors/EditableTagsField";
 import {
@@ -15,7 +16,13 @@ import { useEntityProvider } from "../../common/context/EntityContext";
 import { notify, notifyError } from "../../common/hooks/useNotification";
 import StatusChip from "../../common/StatusChip";
 import { UPDATE_ENVIRONMENT_MUTATION } from "../graphql";
-import { EnvironmentUpdateRequest, GqlEnvironment } from "../types";
+import {
+  BindingSinkConfig,
+  EnvironmentUpdateRequest,
+  GqlEnvironment,
+} from "../types";
+
+import { BindingSinkEditor, BindingSinkSummary } from "./BindingSinkEditor";
 
 const valueOrDash = (value: string | null | undefined) => value || "—";
 
@@ -70,6 +77,18 @@ export const EnvironmentOverview = ({
       <CommonField
         name="Approval Required"
         value={environment.approvalRequired ? "Yes" : "No"}
+      />
+      <CommonEditableField<BindingSinkConfig>
+        name="Binding Sink"
+        canEdit={canEdit}
+        value={environment.bindingSink ?? {}}
+        ariaLabel="Edit binding sink"
+        display={<BindingSinkSummary config={environment.bindingSink ?? {}} />}
+        onSave={(value) => saveField({ bindingSink: value })}
+        renderEditor={({ value, onChange }) => (
+          <BindingSinkEditor value={value} onChange={onChange} />
+        )}
+        size={12}
       />
       <CommonField
         name="Project"

@@ -1,5 +1,6 @@
 from datetime import datetime, UTC
 import re
+from typing import Any
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
@@ -79,6 +80,7 @@ class ServiceInstanceResponse(BaseModel):
     spec_revision_applied: int | None = Field(default=None)
     target_spec_revision: int | None = Field(default=None)
     workflow_id: uuid.UUID | None = Field(default=None)
+    binding_state: dict[str, Any] | None = Field(default=None)
     state: ModelState = Field(default=ModelState.PROVISION)
     status: ModelStatus = Field(default=ModelStatus.READY)
     resources: list[ServiceInstanceResourceResponse] = Field(default_factory=list)

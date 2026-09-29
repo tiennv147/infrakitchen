@@ -41,6 +41,52 @@ export interface GqlServicePlan {
   destroys: number;
 }
 
+export interface GqlBindingItem {
+  key: string;
+  scope: string;
+  value: string;
+  sensitive: boolean;
+  sources: string[];
+}
+
+export interface GqlServiceBindings {
+  deployed: boolean;
+  sink: string;
+  path: string | null;
+  namespace: string | null;
+  secretProviderClass: string | null;
+  manageSecretProviderClass: boolean;
+  mountPath: string | null;
+  runtime: GqlBindingItem[];
+  build: GqlBindingItem[];
+  errors: string[];
+  appliedKeys: string[];
+  appliedAt: string | null;
+  appliedPath: string | null;
+}
+
+const BINDING_ITEM_FIELDS = "key scope value sensitive sources";
+
+export const SERVICE_BINDINGS_QUERY = `
+  query ServiceBindings($serviceId: UUID!, $environmentId: UUID!) {
+    serviceBindings(serviceId: $serviceId, environmentId: $environmentId) {
+      deployed
+      sink
+      path
+      namespace
+      secretProviderClass
+      manageSecretProviderClass
+      mountPath
+      errors
+      appliedKeys
+      appliedAt
+      appliedPath
+      runtime { ${BINDING_ITEM_FIELDS} }
+      build { ${BINDING_ITEM_FIELDS} }
+    }
+  }
+`;
+
 export const CLAIMABLE_TEMPLATES_QUERY = `
   query ClaimableTemplates {
     claimableTemplates {

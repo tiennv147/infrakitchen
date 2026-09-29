@@ -38,6 +38,34 @@ class SecretProviderAdapter:
         raise NotImplementedError("Subclasses must implement add_secrets_to_env method.")
 
 
+class BindingSinkAdapter:
+    """Write-capable store that delivers a service's bindings to where its workload reads them.
+
+    Unlike SecretProviderAdapter (read-only, feeds Terraform), a sink holds one key/value document per path.
+    """
+
+    __binding_sink_name__: str = ""
+
+    adapters: dict[str, Any] = {}
+
+    @classmethod
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.adapters[cls.__binding_sink_name__] = cls
+
+    async def read(self, path: str) -> dict[str, str] | None:
+        """Return the document at path, or None when it does not exist."""
+        raise NotImplementedError("Subclasses must implement read method.")
+
+    async def write(self, path: str, payload: dict[str, str]) -> bool:
+        """Replace the document at path, creating it if needed. Returns True when it was created."""
+        raise NotImplementedError("Subclasses must implement write method.")
+
+    async def delete(self, path: str) -> None:
+        """Delete the document at path; a missing document is not an error."""
+        raise NotImplementedError("Subclasses must implement delete method.")
+
+
 class StorageProviderAdapter:
     """Base adapter class for cloud backend providers like Tofu, CloudFormation.
 

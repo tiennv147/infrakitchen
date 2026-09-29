@@ -79,7 +79,7 @@ class ServiceService:
             raise EntityNotFound(f"Project {project_id} not found")
 
     async def _validate_spec(self, spec: ServiceSpec) -> None:
-        if not spec.claims:
+        if not spec.claims and not spec.bindings:
             return
         errors = validate_spec_against_catalog(spec, await self.crud.load_catalog(spec))
         if errors:

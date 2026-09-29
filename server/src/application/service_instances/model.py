@@ -1,7 +1,8 @@
 from enum import StrEnum, unique
+from typing import Any
 import uuid
 
-from sqlalchemy import UUID, CheckConstraint, ForeignKey, Index, String, text
+from sqlalchemy import JSON, UUID, CheckConstraint, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from application.environments.model import Environment
@@ -77,6 +78,9 @@ class ServiceInstance(BaseEntity):
         ForeignKey("workflows.id", name="fk_service_instance_workflow_id", ondelete="SET NULL"),
         nullable=True,
     )
+
+    # What the reconciler last wrote to the binding sink: sink, path, managed keys, whether it created them.
+    binding_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     resources: Mapped[list[ServiceInstanceResource]] = relationship(
         "ServiceInstanceResource", lazy="selectin", cascade="all, delete-orphan"

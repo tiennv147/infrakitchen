@@ -2,6 +2,7 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from application.environments.model import Environment
 from application.services.compiler import PlanAction
 from application.services.schema import ServiceSpec
 from application.services.service import ServiceService
@@ -16,6 +17,7 @@ from core.errors import CannotProceed
 from core.users.model import UserDTO
 from core.utils.event_sender import EventSender
 
+from .binding_delivery import BindingDelivery
 from .crud import ServiceInstanceCRUD
 from .model import ServiceInstance, ServiceInstanceResource, ServiceResourceRole
 from .schema import ServiceInstanceResponse
@@ -35,6 +37,7 @@ class ServiceInstanceTask:
         user: UserDTO,
         event_sender: EventSender,
         action: ModelActions,
+        binding_delivery: BindingDelivery | None = None,
     ) -> None:
         self.session: AsyncSession = session
         self.crud: ServiceInstanceCRUD = crud
@@ -45,6 +48,7 @@ class ServiceInstanceTask:
         self.user: UserDTO = user
         self.event_sender: EventSender = event_sender
         self.action: ModelActions = action
+        self.binding_delivery: BindingDelivery | None = binding_delivery
 
     async def start_pipeline(self) -> None:
         match self.action:
@@ -205,9 +209,35 @@ class ServiceInstanceTask:
 
     async def _finish_reconcile(self) -> None:
         await self._unlink_destroyed()
+        if not await self._deliver_bindings(remove=False):
+            return
         self.instance.spec_revision_applied = self.instance.target_spec_revision
         self.logger.info(f"Service is at spec revision {self.instance.spec_revision_applied}")
         await self.change_entity_status(status=ModelStatus.DONE, state=ModelState.PROVISIONED)
+
+    async def _deliver_bindings(self, remove: bool) -> bool:
+        """Write (or remove) the instance's bindings. Returns False when the instance was failed instead."""
+        if self.binding_delivery is None:
+            return True
+        service = await self.service_service.crud.get_by_id(self.instance.service_id)
+        environment = await self.session.get(Environment, self.instance.environment_id)
+        if service is None or environment is None:
+            raise CannotProceed("Service or environment not found for bindings")
+        try:
+            if remove:
+                await self.binding_delivery.remove(self.instance, service, environment)
+                self.instance.binding_state = None
+                self.logger.info("Removed the bindings this service wrote")
+            else:
+                state = await self.binding_delivery.apply(self.instance, service, environment)
+                self.instance.binding_state = state
+                if state:
+                    self.logger.info(f"Wrote {len(state['keys'])} runtime bindings to {state['sink']} {state['path']}")
+        except Exception as exc:  # noqa: BLE001 - any sink failure fails the run with a readable reason
+            self.logger.error(f"Bindings failed: {exc}")
+            await self.change_entity_status(status=ModelStatus.ERROR)
+            return False
+        return True
 
     async def destroy_entity(self) -> None:
         workflow = await self._current_workflow()
@@ -221,6 +251,8 @@ class ServiceInstanceTask:
             return
 
         await self._unlink_destroyed()
+        if not await self._deliver_bindings(remove=True):
+            return
         self.instance.spec_revision_applied = None
         self.instance.target_spec_revision = None
         self.logger.info("Service is destroyed in this environment")

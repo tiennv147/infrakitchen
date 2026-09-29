@@ -1,6 +1,6 @@
 from datetime import datetime, UTC
 import re
-from typing import Any
+from typing import Any, Literal
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
@@ -9,8 +9,11 @@ from application.projects.schema import ProjectShort
 from core.users.schema import UserShort
 
 ALIAS_PATTERN = r"[a-z][a-z0-9_]{0,62}"
+BINDING_KEY_PATTERN = r"[A-Za-z_][A-Za-z0-9_.-]{0,127}"
 # A variable value that is exactly "${alias.outputs.name}" is wired from another claim's output.
 OUTPUT_REF = re.compile(rf"^\$\{{({ALIAS_PATTERN})\.outputs\.([A-Za-z_][A-Za-z0-9_]*)\}}$")
+# Binding values may interpolate any number of references inside literal text.
+BINDING_REF = re.compile(rf"\$\{{({ALIAS_PATTERN})\.outputs\.([A-Za-z_][A-Za-z0-9_]*)\}}")
 _ANY_REF = re.compile(r"\$\{[^}]*\}")
 
 
@@ -73,10 +76,41 @@ class ClaimSpec(BaseModel):
         return {name: value for name, value in self.variables.items() if name not in refs}
 
 
+class BindingSpec(BaseModel):
+    """A key delivered to the workload; values may interpolate outputs of claims or referenced resources."""
+
+    key: str = Field(..., description="Name the application reads, e.g. REDIS_URL")
+    value: str = Field(..., description="Literal text with ${alias.outputs.name} references")
+    scope: Literal["runtime", "build"] = Field(
+        default="runtime", description="runtime goes to the environment's binding sink; build is read by CI"
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, value: str) -> str:
+        if not re.fullmatch(BINDING_KEY_PATTERN, value):
+            raise ValueError(f"binding key '{value}' must match {BINDING_KEY_PATTERN}")
+        return value
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, value: str) -> str:
+        leftover = BINDING_REF.sub("", value)
+        if _ANY_REF.search(leftover):
+            raise ValueError(f"Unsupported reference in '{value}': use ${{alias.outputs.name}}")
+        return value
+
+    def refs(self) -> list[OutputRef]:
+        return [OutputRef(alias=m.group(1), output=m.group(2)) for m in BINDING_REF.finditer(self.value)]
+
+
 class ServiceSpec(BaseModel):
     """Declarative description of the infrastructure a service claims in every environment."""
 
     claims: list[ClaimSpec] = Field(default_factory=list)
+    bindings: list[BindingSpec] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -86,6 +120,11 @@ class ServiceSpec(BaseModel):
         duplicates = sorted({alias for alias in aliases if aliases.count(alias) > 1})
         if duplicates:
             raise ValueError(f"Duplicate claim aliases: {', '.join(duplicates)}")
+
+        keys = [binding.key for binding in self.bindings]
+        duplicate_keys = sorted({key for key in keys if keys.count(key) > 1})
+        if duplicate_keys:
+            raise ValueError(f"Duplicate binding keys: {', '.join(duplicate_keys)}")
 
         known = set(aliases)
         for claim in self.claims:
