@@ -1,5 +1,6 @@
 from .schema import (
     BackstageProviderConfig,
+    GithubOidcProviderConfig,
     GithubProviderConfig,
     GoogleProviderConfig,
     GuestProviderConfig,
@@ -12,6 +13,7 @@ from .model import AuthProviderDTO
 __all__ = [
     "AuthProviderDTO",
     "BackstageProviderConfig",
+    "GithubOidcProviderConfig",
     "GithubProviderConfig",
     "GoogleProviderConfig",
     "GuestProviderConfig",

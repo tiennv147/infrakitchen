@@ -47,7 +47,7 @@ async def insert_regional_resources(
 
     resource_fixtures = [
         {
-            "template": "service",
+            "template": "service_anchor",
             "dependency_config": [
                 DependencyConfig(name="service_name", value=f"test_service_{env}", inherited_by_children=True),
             ],

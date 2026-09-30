@@ -65,13 +65,27 @@ class IKServiceAccountProviderConfig(BaseModel):
         return []
 
 
+class GithubOidcProviderConfig(BaseModel):
+    """GitHub Actions workflows authenticate with their OIDC token and may deploy their own repository's service."""
+
+    auth_provider: Literal["github_oidc"] = Field(default="github_oidc", frozen=True)
+    audience: str = Field(default="infrakitchen", min_length=1, description="Audience the workflow requests")
+    allowed_owners: list[str] = Field(
+        default_factory=list, description="GitHub organizations or users allowed; empty allows any"
+    )
+
+    def get_secrets(self) -> list[tuple[str, EncryptedSecretStr]]:
+        return []
+
+
 type AuthProviderConfig = Annotated[
     MicrosoftProviderConfig
     | GithubProviderConfig
     | GoogleProviderConfig
     | BackstageProviderConfig
     | GuestProviderConfig
-    | IKServiceAccountProviderConfig,
+    | IKServiceAccountProviderConfig
+    | GithubOidcProviderConfig,
     Field(discriminator="auth_provider"),
 ]
 
@@ -89,9 +103,9 @@ class AuthProviderResponse(BaseModel):
     )
     description: str = Field(default="")
     enabled: bool = Field(default=True)
-    auth_provider: Literal["microsoft", "guest", "github", "google", "backstage", "ik_service_account"] = Field(
-        ..., frozen=True
-    )
+    auth_provider: Literal[
+        "microsoft", "guest", "github", "google", "backstage", "ik_service_account", "github_oidc"
+    ] = Field(..., frozen=True)
     configuration: AuthProviderConfig = Field(...)
 
     filter_by_domain: list[str] = Field(default=[])
@@ -109,9 +123,9 @@ class AuthProviderCreate(BaseModel):
     )
     description: str = Field(default="")
     enabled: bool = Field(default=True)
-    auth_provider: Literal["microsoft", "guest", "github", "google", "backstage", "ik_service_account"] = Field(
-        ..., frozen=True
-    )
+    auth_provider: Literal[
+        "microsoft", "guest", "github", "google", "backstage", "ik_service_account", "github_oidc"
+    ] = Field(..., frozen=True)
     configuration: AuthProviderConfig = Field(...)
     filter_by_domain: list[str] = Field(default=[])
 

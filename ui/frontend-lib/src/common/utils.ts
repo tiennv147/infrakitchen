@@ -224,6 +224,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   guest: "Guest",
   backstage: "Backstage",
   ik_service_account: "Service Account",
+  github_oidc: "GitHub Actions",
   bitbucket: "Bitbucket",
   bitbucket_ssh: "Bitbucket",
   aws: "AWS",

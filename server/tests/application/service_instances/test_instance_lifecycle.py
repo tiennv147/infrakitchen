@@ -40,7 +40,12 @@ def svc(monkeypatch, mock_event_sender, mock_audit_log_handler):
         "get_by_service_environment",
     ):
         setattr(crud, name, AsyncMock())
-    crud.session = Mock(get=AsyncMock(return_value=SimpleNamespace(approval_required=False)), execute=AsyncMock())
+    no_rows = Mock(scalars=Mock(return_value=Mock(first=Mock(return_value=None))))
+    crud.session = Mock(
+        get=AsyncMock(return_value=SimpleNamespace(approval_required=False)),
+        execute=AsyncMock(return_value=no_rows),
+        flush=AsyncMock(),
+    )
     services = Mock()
     services.get_actions = AsyncMock(return_value=[ModelActions.EDIT, ModelActions.DELETE])
     services.compile = AsyncMock(

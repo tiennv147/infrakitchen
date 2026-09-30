@@ -17,6 +17,7 @@ from core.dependencies import get_async_session
 from core.errors import AccessUnauthorized, EntityExistsError
 from core.permissions.dependencies import get_permission_service
 from core.sso.dependencies import get_sso_service
+from core.sso.github_oidc import github_oidc_user, is_github_oidc_token
 from core.sso.service import SSOService
 from core.users.dependencies import get_user_service
 from core.users.functions import user_has_access_to_api
@@ -226,6 +227,15 @@ async def get_user_from_token(service: SSOService, token: str | None = Security(
     except Exception as error:
         logger.error(f"Error decoding token: {error}")
         raise AccessUnauthorized("Invalid authentication credentials") from error
+
+    if is_github_oidc_token(decoded_token):
+        try:
+            return await github_oidc_user(service, token)
+        except AccessUnauthorized:
+            raise
+        except Exception as error:
+            logger.error(f"Error validating GitHub OIDC token: {error}")
+            raise AccessUnauthorized("Invalid authentication credentials") from error
 
     try:
         claims = await get_decoded_token(service, token, alg, token_type, audience)

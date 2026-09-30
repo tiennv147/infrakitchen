@@ -45,6 +45,7 @@ const USER_AUTH_PROVIDERS = [
   "google",
   "backstage",
   "ik_service_account",
+  "github_oidc",
 ] as const;
 
 export const userColumns: EntityTableColumn[] = [

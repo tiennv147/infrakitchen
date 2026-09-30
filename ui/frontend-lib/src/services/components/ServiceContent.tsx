@@ -17,6 +17,7 @@ import { ServiceEnvironments } from "./ServiceEnvironments";
 import { ServiceNotificationSubscribersTable } from "./ServiceNotificationSubscribersTable";
 import { ServiceOverview } from "./ServiceOverview";
 import { ServicePermissions } from "./ServicePermissions";
+import { ServiceWorkload } from "./ServiceWorkload";
 
 export const ServiceContent = () => {
   const [subscribersRefreshKey, setSubscribersRefreshKey] = useState(0);
@@ -50,6 +51,18 @@ export const ServiceContent = () => {
       content: (
         <ServiceBindings
           serviceId={entity.id}
+          spec={entity.spec ?? null}
+          canEdit={actions.includes("edit")}
+        />
+      ),
+    },
+    {
+      label: "Workload",
+      content: (
+        <ServiceWorkload
+          serviceId={entity.id}
+          serviceName={entity.name}
+          repositoryUrl={entity.repositoryUrl ?? null}
           spec={entity.spec ?? null}
           canEdit={actions.includes("edit")}
         />

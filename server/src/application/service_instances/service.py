@@ -20,11 +20,10 @@ from core.utils.event_sender import EventSender
 
 from .adoption import AdoptedResource, reverse_compile
 from .crud import ServiceInstanceCRUD
+from .deployments import BUSY, DeploymentService
 from .functions import get_service_instance_actions
 from .model import ServiceInstance, ServiceResourceRole
 from .schema import AdoptResources, ApplyServiceMigration, ServiceInstanceCreate, ServiceInstanceResponse
-
-BUSY = (ModelStatus.QUEUED, ModelStatus.IN_PROGRESS, ModelStatus.APPROVAL_PENDING)
 
 
 def _inherited_names(resource: Resource) -> frozenset[str]:
@@ -156,12 +155,12 @@ class ServiceInstanceService:
             owns_resources=any(link.role != ServiceResourceRole.REFERENCED for link in instance.resources),
         )
 
-    async def _send(self, instance: ServiceInstance, action: str) -> ServiceInstance:
+    async def send(self, instance: ServiceInstance, action: str) -> ServiceInstance:
         await self.crud.refresh(instance)
         await self.event_sender.send_event(ServiceInstanceResponse.model_validate(instance), action)
         return instance
 
-    async def _queue(self, instance: ServiceInstance, requester: UserDTO, approval_required: bool) -> None:
+    async def queue_run(self, instance: ServiceInstance, requester: UserDTO, approval_required: bool) -> None:
         if approval_required:
             instance.status = ModelStatus.APPROVAL_PENDING
             return
@@ -196,23 +195,24 @@ class ServiceInstanceService:
                 if instance.state == ModelState.DESTROYED or instance.spec_revision_applied is None:
                     instance.state = ModelState.PROVISION
                 instance.workflow_id = None
-                await self._queue(instance, requester, approval_required)
+                await self.queue_run(instance, requester, approval_required)
             case ModelActions.DESTROY:
                 instance.state = ModelState.DESTROY
                 instance.workflow_id = None
-                await self._queue(instance, requester, approval_required)
+                await self.queue_run(instance, requester, approval_required)
             case ModelActions.APPROVE:
-                await self._queue(instance, requester, approval_required=False)
+                await self.queue_run(instance, requester, approval_required=False)
             case ModelActions.REJECT:
                 applied = instance.spec_revision_applied is not None
                 instance.state = ModelState.PROVISIONED if applied else ModelState.PROVISION
                 instance.status = ModelStatus.DONE if applied else ModelStatus.READY
+                await DeploymentService(self).cancel_active(instance, "Approval rejected", requester)
             case ModelActions.RETRY:
-                await self._queue(instance, requester, approval_required=False)
+                await self.queue_run(instance, requester, approval_required=False)
             case _:
                 raise ValueError(f"Action {body.action} is not supported")
 
-        return await self._send(instance, body.action)
+        return await self.send(instance, body.action)
 
     async def adopt_resources(self, request: AdoptResources, requester: UserDTO) -> ServiceInstance:
         """
@@ -323,7 +323,7 @@ class ServiceInstanceService:
             instance.status = ModelStatus.DONE
 
         await self.audit_log_handler.create_log(instance.id, requester.id, ModelActions.ADOPT)
-        return await self._send(instance, ModelActions.ADOPT)
+        return await self.send(instance, ModelActions.ADOPT)
 
     async def apply_migration(self, request: ApplyServiceMigration, requester: UserDTO) -> Service:
         """Create (or reuse) the Service for an anchor and adopt the reviewed resources environment by environment."""

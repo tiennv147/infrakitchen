@@ -35,6 +35,7 @@ const authProviders = [
   "google",
   "backstage",
   "ik_service_account",
+  "github_oidc",
 ];
 
 const AuthProviderCreatePageInner = () => {

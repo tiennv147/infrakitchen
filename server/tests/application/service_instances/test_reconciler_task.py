@@ -34,6 +34,7 @@ def _task(monkeypatch, *, state=ModelState.PROVISION, status=ModelStatus.QUEUED,
         workflow_id=workflow.id if workflow else None,
         spec_revision_applied=None,
         target_spec_revision=None,
+        workload_version=None,
     )
     service_service = Mock()
     service_service.compile = AsyncMock()
@@ -44,7 +45,7 @@ def _task(monkeypatch, *, state=ModelState.PROVISION, status=ModelStatus.QUEUED,
     workflow_service.crud.get_by_id = AsyncMock(return_value=workflow)
     crud = Mock(refresh=AsyncMock(), add_links=AsyncMock(), remove_links=AsyncMock())
     return ServiceInstanceTask(
-        session=Mock(commit=AsyncMock()),
+        session=Mock(commit=AsyncMock(), get=AsyncMock(return_value=SimpleNamespace(name="dev"))),
         crud=crud,
         service_service=service_service,
         workflow_service=workflow_service,
@@ -262,3 +263,111 @@ class TestBindingsStep:
         delivery.remove.assert_awaited_once()
         assert task.instance.binding_state is None
         assert task.instance.state == ModelState.DESTROYED
+
+
+MANAGED = {"claims": [], "workload": {"mode": "managed", "chart": "charts/app", "chart_version": "1.0.0"}}
+
+
+def _workload_step(status=ModelStatus.PENDING):
+    return WorkflowStepCreate(template_id=uuid4(), position=0, step_key="workload", status=status)
+
+
+class TestWorkloadStep:
+    def _deployments(self, task, active=None):
+        deployments = Mock(active_for=AsyncMock(return_value=active), finish=AsyncMock())
+        task.deployments = deployments
+        task.service_service.compile_workload = AsyncMock(return_value=_compiled(_workload_step()))
+        return deployments
+
+    @pytest.mark.asyncio
+    async def test_workload_is_applied_after_claims_and_bindings(self, monkeypatch):
+        task = _task(monkeypatch, spec=MANAGED)
+        task.instance.workload_version = "1.2.3"
+        task.service_service.compile.return_value = _compiled()
+        self._deployments(task)
+
+        await task.start_pipeline()
+
+        task.service_service.compile_workload.assert_awaited_once()
+        assert task.service_service.compile_workload.await_args.args[2] == "1.2.3"
+        created = task.workflow_service.create.await_args.args[0]
+        assert [s["step_key"] for s in created["steps"]] == ["workload"]
+        assert task.instance.status == ModelStatus.IN_PROGRESS
+
+    @pytest.mark.asyncio
+    async def test_no_version_yet_finishes_without_the_workload(self, monkeypatch):
+        task = _task(monkeypatch, spec=MANAGED)
+        task.service_service.compile.return_value = _compiled()
+        self._deployments(task)
+
+        await task.start_pipeline()
+
+        task.service_service.compile_workload.assert_not_awaited()
+        assert (task.instance.status, task.instance.spec_revision_applied) == (ModelStatus.DONE, 7)
+
+    @pytest.mark.asyncio
+    async def test_external_workload_is_never_applied(self, monkeypatch):
+        task = _task(monkeypatch, spec={**MANAGED, "workload": {**MANAGED["workload"], "mode": "external"}})
+        task.instance.workload_version = "1.2.3"
+        task.service_service.compile.return_value = _compiled()
+        self._deployments(task)
+
+        await task.start_pipeline()
+
+        task.service_service.compile_workload.assert_not_awaited()
+        assert task.instance.status == ModelStatus.DONE
+
+    @pytest.mark.asyncio
+    async def test_deployment_runs_only_the_workload(self, monkeypatch):
+        task = _task(monkeypatch, spec=MANAGED, state=ModelState.PROVISIONED)
+        self._deployments(task, active=SimpleNamespace(version="2.0.0"))
+
+        await task.start_pipeline()
+
+        task.service_service.compile.assert_not_awaited()
+        assert task.service_service.compile_workload.await_args.args[2] == "2.0.0"
+        assert task.instance.status == ModelStatus.IN_PROGRESS
+
+    @pytest.mark.asyncio
+    async def test_finished_deployment_records_the_version_but_not_a_spec_revision(self, monkeypatch):
+        workflow = _workflow(steps=[SimpleNamespace(step_key="workload", resource_id=uuid4())])
+        task = _task(monkeypatch, spec=MANAGED, workflow=workflow, status=ModelStatus.IN_PROGRESS)
+        task.instance.spec_revision_applied = 5
+        task.instance.target_spec_revision = 6
+        deployments = self._deployments(task, active=SimpleNamespace(version="2.0.0"))
+
+        await task.start_pipeline()
+
+        assert task.instance.workload_version == "2.0.0"
+        assert task.instance.spec_revision_applied == 5
+        assert task.instance.status == ModelStatus.DONE
+        deployments.finish.assert_awaited_once()
+        assert deployments.finish.await_args.kwargs["ok"] is True
+        link = task.crud.add_links.await_args.args[1][0]
+        assert (link[0], link[2]) == ("workload", "workload")
+
+    @pytest.mark.asyncio
+    async def test_values_failure_fails_the_deployment(self, monkeypatch):
+        task = _task(monkeypatch, spec=MANAGED, state=ModelState.PROVISIONED)
+        deployments = self._deployments(task, active=SimpleNamespace(version="2.0.0"))
+        task.workload_values = Mock(resolve=AsyncMock(side_effect=ValueError("Values file x.yaml not found at main")))
+
+        await task.start_pipeline()
+
+        assert task.instance.status == ModelStatus.ERROR
+        assert deployments.finish.await_args.kwargs == {
+            "ok": False,
+            "message": "Workload values failed: Values file x.yaml not found at main",
+            "requester": task.user,
+        }
+
+    @pytest.mark.asyncio
+    async def test_destroy_takes_the_workload_down_first(self, monkeypatch):
+        db = _link("db")
+        app = _link("workload", role="workload")
+        task = _task(monkeypatch, state=ModelState.DESTROY, links=[db, app])
+
+        await task.start_pipeline()
+
+        steps = {s["step_key"]: s["position"] for s in task.workflow_service.create.await_args.args[0]["steps"]}
+        assert steps["workload"] < steps["db"]

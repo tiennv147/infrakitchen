@@ -10,6 +10,7 @@ from application.service_instances.binding_delivery import BindingPreview
 from application.service_instances.binding_delivery import preview as binding_preview
 from application.service_instances.crud import ServiceInstanceCRUD
 from application.service_instances.dependencies import get_service_instance_service
+from application.service_instances.deployments import DeploymentService
 from application.service_instances.migration import list_anchors, propose
 from application.service_instances.model import ServiceInstance
 from application.service_instances.service import ServiceInstanceService
@@ -28,6 +29,7 @@ from graphql_api.modules.service_instance.types import (
     MigrationAnchorType,
     MigrationProposalType,
     ServiceBindingsType,
+    ServiceDeploymentType,
     ServiceInstanceType,
 )
 
@@ -106,6 +108,16 @@ class ServiceInstanceQuery:
         if build_errors:
             raise ValueError("; ".join(build_errors))
         return cast(JSON, cast(object, preview.rendered.payload("build")))
+
+    @strawberry.field(permission_classes=[IsAuthenticated])
+    async def service_deployments(
+        self, info: Info, service_id: uuid.UUID, environment_id: uuid.UUID | None = None, limit: int = 50
+    ) -> list[ServiceDeploymentType]:
+        """Workload deployment history, newest first."""
+        await check_api_permission(info, "service", ["read"])
+        deployments = DeploymentService(_build_service(info))
+        rows = await deployments.history(service_id, environment_id, max(1, min(limit, 200)))
+        return [ServiceDeploymentType.from_model(d) for d in rows]
 
     @strawberry.field(permission_classes=[IsAuthenticated])
     async def service_migration_anchors(

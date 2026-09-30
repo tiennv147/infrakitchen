@@ -63,6 +63,7 @@ class TestSpecOnSave:
                 }
             ],
             "bindings": [],
+            "workload": None,
         }
 
     @pytest.mark.asyncio
@@ -76,7 +77,7 @@ class TestSpecOnSave:
         await mock_service_service.create_service(ServiceCreate(name="checkout", project_id=uuid4()), mocked_user)
 
         mock_service_crud.load_catalog.assert_not_awaited()
-        assert mock_service_crud.create.await_args.args[0]["spec"] == {"claims": [], "bindings": []}
+        assert mock_service_crud.create.await_args.args[0]["spec"] == {"claims": [], "bindings": [], "workload": None}
 
     @pytest.mark.asyncio
     async def test_update_with_new_spec_is_a_change(

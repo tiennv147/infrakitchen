@@ -81,4 +81,6 @@ def reverse_compile(
     for claim in claims.values():
         claim.parents = [p for p in claim.parents if p in known and p != claim.alias]
 
-    return ServiceSpec(claims=[claims[alias] for alias in order], bindings=spec.bindings), errors
+    return ServiceSpec(
+        claims=[claims[alias] for alias in order], bindings=spec.bindings, workload=spec.workload
+    ), errors

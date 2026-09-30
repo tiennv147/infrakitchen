@@ -20,13 +20,27 @@ from core.revisions.handler import RevisionHandler
 from core.utils.event_sender import EventSender
 from core.utils.model_tools import has_field_changes, model_db_dump, to_json_serializable
 from .functions import get_service_actions
-from .compiler import CompiledService, ServicePlan, compile_service_spec, validate_spec_against_catalog
+from .compiler import (
+    CompiledService,
+    ServicePlan,
+    compile_service_spec,
+    compile_workload,
+    validate_spec_against_catalog,
+)
 from .crud import ServiceCRUD
 from .model import Service
 from .schema import ServiceCreate, ServiceResponse, ServiceSpec, ServiceUpdate
 from core.users.model import UserDTO
 
 logger = logging.getLogger(__name__)
+
+
+def _parsed_spec(stored: dict[str, Any] | None) -> ServiceSpec | None:
+    """Compare specs by meaning, so fields added later with defaults do not count as a change."""
+    try:
+        return ServiceSpec.model_validate(stored or {})
+    except ValueError:
+        return None
 
 
 class ServiceService:
@@ -79,7 +93,7 @@ class ServiceService:
             raise EntityNotFound(f"Project {project_id} not found")
 
     async def _validate_spec(self, spec: ServiceSpec) -> None:
-        if not spec.claims and not spec.bindings:
+        if not spec.claims and not spec.bindings and spec.managed_workload is None:
             return
         errors = validate_spec_against_catalog(spec, await self.crud.load_catalog(spec))
         if errors:
@@ -109,7 +123,49 @@ class ServiceService:
         )
 
     async def plan(self, service_id: str | UUID, environment_id: str | UUID, requester: UserDTO) -> ServicePlan:
-        return (await self.compile(service_id, environment_id, requester)).plan
+        plan = (await self.compile(service_id, environment_id, requester)).plan
+        if plan.errors or plan.service_instance_id is None:
+            return plan
+        version = await self.crud.workload_version(plan.service_instance_id)
+        workload = await self.compile_workload(service_id, environment_id, version, None, None, requester)
+        if workload is not None:
+            plan.items.extend(workload.plan.items)
+            plan.errors.extend(workload.plan.errors)
+        return plan
+
+    async def compile_workload(
+        self,
+        service_id: str | UUID,
+        environment_id: str | UUID,
+        version: str | None,
+        values: list[str] | None,
+        values_commit: str | None,
+        requester: UserDTO,
+    ) -> CompiledService | None:
+        """The Helm release step for a managed workload; None when the workload is external or has no version yet."""
+        service = await self.crud.get_by_id(service_id, fields={"id": None, "name": None, "spec": None})
+        if not service:
+            raise EntityNotFound("Service not found")
+        spec = ServiceSpec.model_validate(service.spec or {})
+        workload = spec.managed_workload
+        environment = await self.crud.load_environment_target(environment_id)
+        if workload is None or version is None or environment is None:
+            return None
+        instance_id, anchor, owned = await self.crud.load_instance(service.id, environment.id)
+        return compile_workload(
+            service_id=service.id,
+            service_name=service.name,
+            workload=workload,
+            catalog=await self.crud.load_catalog(spec),
+            environment=environment,
+            owned=owned,
+            created_by=requester.id,
+            version=version,
+            values=values,
+            values_commit=values_commit,
+            anchor=anchor,
+            service_instance_id=instance_id,
+        )
 
     async def create_service(self, service: ServiceCreate, requester: UserDTO) -> Service:
         await self._assert_project_exists(service.project_id)
@@ -147,7 +203,7 @@ class ServiceService:
         if service.spec is not None:
             await self._validate_spec(service.spec)
             body["spec"] = service.spec.model_dump(mode="json")
-            if body["spec"] != (existing_service.spec or {}):
+            if service.spec != _parsed_spec(existing_service.spec):
                 body["spec_revision"] = (existing_service.spec_revision or 1) + 1
 
         depends_on = body.pop("depends_on", None)

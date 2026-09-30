@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from application.environments.model import Environment
 from application.services.compiler import PlanAction
-from application.services.schema import ServiceSpec
+from application.services.schema import WORKLOAD_ALIAS, ServiceSpec
 from application.services.service import ServiceService
 from application.workflows.functions import topological_levels
 from application.workflows.model import Workflow
@@ -19,10 +19,16 @@ from core.utils.event_sender import EventSender
 
 from .binding_delivery import BindingDelivery
 from .crud import ServiceInstanceCRUD
-from .model import ServiceInstance, ServiceInstanceResource, ServiceResourceRole
+from .deployments import DeploymentService
+from .model import ServiceDeployment, ServiceInstance, ServiceInstanceResource, ServiceResourceRole
 from .schema import ServiceInstanceResponse
+from .workload_values import WorkloadValuesResolver
 
 RUNNING = (ModelStatus.PENDING, ModelStatus.QUEUED, ModelStatus.IN_PROGRESS)
+
+
+def _is_workload(workflow: Workflow) -> bool:
+    return bool(workflow.steps) and all(step.step_key == WORKLOAD_ALIAS for step in workflow.steps)
 
 
 class ServiceInstanceTask:
@@ -38,6 +44,8 @@ class ServiceInstanceTask:
         event_sender: EventSender,
         action: ModelActions,
         binding_delivery: BindingDelivery | None = None,
+        deployments: DeploymentService | None = None,
+        workload_values: WorkloadValuesResolver | None = None,
     ) -> None:
         self.session: AsyncSession = session
         self.crud: ServiceInstanceCRUD = crud
@@ -49,6 +57,8 @@ class ServiceInstanceTask:
         self.event_sender: EventSender = event_sender
         self.action: ModelActions = action
         self.binding_delivery: BindingDelivery | None = binding_delivery
+        self.deployments: DeploymentService | None = deployments
+        self.workload_values: WorkloadValuesResolver | None = workload_values
 
     async def start_pipeline(self) -> None:
         match self.action:
@@ -61,7 +71,19 @@ class ServiceInstanceTask:
                 raise CannotProceed(f"Unknown action: {self.action}")
 
     async def make_failed(self) -> None:
+        await self._fail("The run failed unexpectedly")
+
+    async def _fail(self, reason: str) -> None:
+        self.logger.error(reason)
         await self.change_entity_status(status=ModelStatus.ERROR)
+        if self.deployments is not None:
+            await self.deployments.finish(self.instance, ok=False, message=reason, requester=self.user)
+            await self.session.commit()
+
+    async def _active_deployment(self) -> ServiceDeployment | None:
+        if self.deployments is None:
+            return None
+        return await self.deployments.active_for(self.instance.id)
 
     async def change_entity_status(self, status: ModelStatus | None = None, state: ModelState | None = None) -> None:
         if status is not None:
@@ -103,8 +125,7 @@ class ServiceInstanceTask:
                 )
                 await self.change_entity_status(status=ModelStatus.IN_PROGRESS)
             else:
-                self.logger.error(f"Workflow {workflow.id} failed: {workflow.error_message or 'see workflow steps'}")
-                await self.change_entity_status(status=ModelStatus.ERROR)
+                await self._fail(f"Workflow {workflow.id} failed: {workflow.error_message or 'see workflow steps'}")
             return False
         return True
 
@@ -114,7 +135,11 @@ class ServiceInstanceTask:
             return
         linked = {link.alias for link in self.instance.resources}
         new = [
-            (step.step_key, step.resource_id, ServiceResourceRole.DEPENDENCY)
+            (
+                step.step_key,
+                step.resource_id,
+                ServiceResourceRole.WORKLOAD if step.step_key == WORKLOAD_ALIAS else ServiceResourceRole.DEPENDENCY,
+            )
             for step in workflow.steps
             if step.step_key and step.resource_id and step.step_key not in linked
         ]
@@ -127,12 +152,15 @@ class ServiceInstanceTask:
         return [link for link in self.instance.resources if link.role != ServiceResourceRole.REFERENCED]
 
     def _destroy_workflow(self, links: list[ServiceInstanceResource]) -> WorkflowCreate:
-        """Dependents are destroyed before the resources they depend on."""
+        """Dependents are destroyed before the resources they depend on; the workload goes first."""
         ids = {link.resource_id for link in links}
         edges = [
             (link.resource_id, parent.id) for link in links for parent in link.resource.parents if parent.id in ids
         ]
         levels = dict(topological_levels([link.resource_id for link in links], edges))
+        workload = [link.resource_id for link in links if link.role == ServiceResourceRole.WORKLOAD]
+        if workload:
+            levels = {rid: 0 if rid in workload else level + 1 for rid, level in levels.items()}
         return WorkflowCreate(
             action=WorkflowAction.DESTROY,
             created_by=self.user.id,
@@ -160,11 +188,17 @@ class ServiceInstanceTask:
     async def execute_entity(self) -> None:
         workflow = await self._current_workflow()
         if workflow is None:
-            await self._start_reconcile()
+            # A deployment only starts on an idle instance, so an active one means this is a workload-only run.
+            if await self._active_deployment() is not None:
+                await self._start_workload()
+            else:
+                await self._start_reconcile()
             return
         if not await self._follow(workflow):
             return
-        if workflow.action == WorkflowAction.CREATE:
+        if _is_workload(workflow):
+            await self._complete()
+        elif workflow.action == WorkflowAction.CREATE:
             await self._remove_unclaimed()
         else:
             await self._finish_reconcile()
@@ -172,9 +206,7 @@ class ServiceInstanceTask:
     async def _start_reconcile(self) -> None:
         compiled = await self.service_service.compile(self.instance.service_id, self.instance.environment_id, self.user)
         if compiled.plan.errors or compiled.workflow is None:
-            for error in compiled.plan.errors:
-                self.logger.error(error)
-            await self.change_entity_status(status=ModelStatus.ERROR)
+            await self._fail("; ".join(compiled.plan.errors) or "The service could not be compiled")
             return
 
         service = await self.service_service.crud.get_by_id(self.instance.service_id)
@@ -199,7 +231,11 @@ class ServiceInstanceTask:
             claim.alias for claim in ServiceSpec.model_validate((service.spec if service else None) or {}).claims
         }
         removed = [
-            link for link in self._owned() if link.alias not in claimed and link.resource.state != ModelState.DESTROYED
+            link
+            for link in self._owned()
+            if link.alias not in claimed
+            and link.role != ServiceResourceRole.WORKLOAD
+            and link.resource.state != ModelState.DESTROYED
         ]
         if removed:
             self.logger.info(f"Destroying resources no longer claimed: {', '.join(link.alias for link in removed)}")
@@ -211,9 +247,60 @@ class ServiceInstanceTask:
         await self._unlink_destroyed()
         if not await self._deliver_bindings(remove=False):
             return
-        self.instance.spec_revision_applied = self.instance.target_spec_revision
-        self.logger.info(f"Service is at spec revision {self.instance.spec_revision_applied}")
+        # The workload starts only after its infrastructure and bindings exist.
+        await self._start_workload()
+
+    async def _start_workload(self) -> None:
+        deployment = await self._active_deployment()
+        version = deployment.version if deployment is not None else self.instance.workload_version
+        service = await self.service_service.crud.get_by_id(self.instance.service_id)
+        environment = await self.session.get(Environment, self.instance.environment_id)
+        if service is None or environment is None:
+            raise CannotProceed("Service or environment not found for the workload")
+        workload = ServiceSpec.model_validate(service.spec or {}).managed_workload
+        if workload is None or version is None:
+            if deployment is not None:
+                await self._fail("The workload of this service is not managed by InfraKitchen")
+            else:
+                await self._complete()
+            return
+
+        values, commit = None, None
+        if self.workload_values is not None:
+            try:
+                resolved = await self.workload_values.resolve(service, environment, workload, self.logger)
+            except Exception as exc:  # noqa: BLE001 - git or configuration problems fail the run with a readable reason
+                await self._fail(f"Workload values failed: {exc}")
+                return
+            values, commit = resolved.values, resolved.commit
+            if resolved.files:
+                self.logger.info(f"Values files at {commit}: {', '.join(resolved.files)}")
+
+        compiled = await self.service_service.compile_workload(
+            self.instance.service_id, self.instance.environment_id, version, values, commit, self.user
+        )
+        if compiled is None or compiled.plan.errors or compiled.workflow is None:
+            await self._fail("; ".join(compiled.plan.errors) if compiled else "The workload could not be compiled")
+            return
+        if all(step.status == ModelStatus.DONE for step in compiled.workflow.steps):
+            self.logger.info(f"Workload {version} is already applied")
+            await self._complete()
+            return
+        self.logger.info(f"Applying workload {version}")
+        await self._start_workflow(compiled.workflow)
+
+    async def _complete(self) -> None:
+        deployment = await self._active_deployment()
+        if deployment is None:
+            self.instance.spec_revision_applied = self.instance.target_spec_revision
+            self.logger.info(f"Service is at spec revision {self.instance.spec_revision_applied}")
+        else:
+            self.instance.workload_version = deployment.version
+            self.logger.info(f"Workload is at {deployment.version}")
         await self.change_entity_status(status=ModelStatus.DONE, state=ModelState.PROVISIONED)
+        if self.deployments is not None:
+            await self.deployments.finish(self.instance, ok=True, message=None, requester=self.user)
+            await self.session.commit()
 
     async def _deliver_bindings(self, remove: bool) -> bool:
         """Write (or remove) the instance's bindings. Returns False when the instance was failed instead."""
@@ -234,8 +321,7 @@ class ServiceInstanceTask:
                 if state:
                     self.logger.info(f"Wrote {len(state['keys'])} runtime bindings to {state['sink']} {state['path']}")
         except Exception as exc:  # noqa: BLE001 - any sink failure fails the run with a readable reason
-            self.logger.error(f"Bindings failed: {exc}")
-            await self.change_entity_status(status=ModelStatus.ERROR)
+            await self._fail(f"Bindings failed: {exc}")
             return False
         return True
 
@@ -255,5 +341,9 @@ class ServiceInstanceTask:
             return
         self.instance.spec_revision_applied = None
         self.instance.target_spec_revision = None
+        self.instance.workload_version = None
         self.logger.info("Service is destroyed in this environment")
         await self.change_entity_status(status=ModelStatus.DONE, state=ModelState.DESTROYED)
+        if self.deployments is not None:
+            await self.deployments.finish(self.instance, ok=True, message=None, requester=self.user)
+            await self.session.commit()

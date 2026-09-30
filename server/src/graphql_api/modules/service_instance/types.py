@@ -1,3 +1,4 @@
+from datetime import datetime
 import uuid
 
 import strawberry
@@ -6,7 +7,7 @@ from strawberry_sqlalchemy_mapper import StrawberrySQLAlchemyMapper
 from application.service_instances.binding_delivery import BindingPreview
 from application.service_instances.bindings import MASK
 from application.service_instances.migration import MigrationProposal, ProposedResource
-from application.service_instances.model import ServiceInstance, ServiceInstanceResource
+from application.service_instances.model import ServiceDeployment, ServiceInstance, ServiceInstanceResource
 from graphql_api.modules.environment.types import EnvironmentType
 from graphql_api.modules.resource.types import ResourceType
 from graphql_api.modules.service.types import ServiceType
@@ -107,6 +108,59 @@ class ServiceBindingsType:
 class MigrationAnchorType:
     id: uuid.UUID
     name: str
+
+
+@strawberry.type
+class ServiceDeploymentType:
+    id: uuid.UUID
+    service_id: uuid.UUID
+    service_instance_id: uuid.UUID
+    environment_id: uuid.UUID
+    environment_name: str
+    batch_id: uuid.UUID
+    position: int
+    version: str
+    previous_version: str | None
+    status: str
+    source: str
+    message: str | None
+    created_by: uuid.UUID
+    created_by_name: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+    @staticmethod
+    def from_model(d: ServiceDeployment) -> "ServiceDeploymentType":
+        creator = d.creator
+        return ServiceDeploymentType(
+            id=d.id,
+            service_id=d.service_id,
+            service_instance_id=d.service_instance_id,
+            environment_id=d.environment_id,
+            environment_name=d.environment.name if d.environment else "",
+            batch_id=d.batch_id,
+            position=d.position,
+            version=d.version,
+            previous_version=d.previous_version,
+            status=d.status,
+            source=d.source,
+            message=d.message,
+            created_by=d.created_by,
+            created_by_name=(creator.display_name or creator.identifier) if creator else None,
+            created_at=d.created_at,
+            started_at=d.started_at,
+            finished_at=d.finished_at,
+        )
+
+
+@strawberry.type
+class DeployTokenType:
+    id: uuid.UUID
+    name: str
+    token: str
+    token_prefix: str
+    expires_at: datetime | None
 
 
 @strawberry.type

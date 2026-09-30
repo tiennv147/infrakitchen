@@ -13,6 +13,7 @@ from .schema import (
     GoogleProviderConfig,
     GuestProviderConfig,
     IKServiceAccountProviderConfig,
+    GithubOidcProviderConfig,
     MicrosoftProviderConfig,
 )
 
@@ -47,16 +48,17 @@ class AuthProviderDTO(BaseModel):
     )
     description: str = Field(default="")
     enabled: bool = Field(default=True)
-    auth_provider: Literal["microsoft", "guest", "github", "google", "backstage", "ik_service_account"] = Field(
-        ..., frozen=True
-    )
+    auth_provider: Literal[
+        "microsoft", "guest", "github", "google", "backstage", "ik_service_account", "github_oidc"
+    ] = Field(..., frozen=True)
     configuration: Annotated[
         MicrosoftProviderConfig
         | GithubProviderConfig
         | GoogleProviderConfig
         | BackstageProviderConfig
         | GuestProviderConfig
-        | IKServiceAccountProviderConfig,
+        | IKServiceAccountProviderConfig
+        | GithubOidcProviderConfig,
         Field(discriminator="auth_provider"),
     ] = Field(...)
     model_config = ConfigDict(from_attributes=True)

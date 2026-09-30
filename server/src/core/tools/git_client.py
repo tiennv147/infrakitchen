@@ -96,6 +96,10 @@ class GitClient:
         _validate_git_path(path)
         return await self._run_git_command(["show", f"{ref}:{path}"], self.destination_dir)
 
+    async def head_commit(self) -> str:
+        """Commit SHA checked out in the clone."""
+        return (await self._run_git_command(["rev-parse", "HEAD"], self.destination_dir)).strip()
+
     async def delete_workspace(self):
         shutil.rmtree(self.destination_dir, ignore_errors=True)
         logger.info(f"Workspace {self.destination_dir} is cleaned up")

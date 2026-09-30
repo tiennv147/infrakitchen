@@ -13,9 +13,27 @@ export interface BindingSpec {
   scope: "runtime" | "build";
 }
 
+export interface WorkloadSpec {
+  mode: "external" | "managed";
+  chart: string;
+  chart_version: string;
+  release_name: string | null;
+  namespace: string | null;
+  values_files: string[];
+  values_ref: string;
+  template: string;
+  source_code_version_id: string | null;
+  image_tag_key: string;
+  atomic: boolean;
+  wait: boolean;
+  timeout: number;
+  cleanup_on_fail: boolean;
+}
+
 export interface ServiceSpec {
   claims: ClaimSpec[];
   bindings?: BindingSpec[];
+  workload?: WorkloadSpec | null;
 }
 
 export interface ServiceCreateRequest {

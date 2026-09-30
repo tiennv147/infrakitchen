@@ -30,7 +30,10 @@ from application.resource_temp_state.crud import ResourceTempStateCrud
 from application.resource_temp_state.model import ResourceTempStateDTO
 from application.service_instances.binding_delivery import BindingDelivery
 from application.service_instances.crud import ServiceInstanceCRUD
+from application.service_instances.dependencies import get_service_instance_service
+from application.service_instances.deployments import DeploymentService
 from application.service_instances.task import ServiceInstanceTask
+from application.service_instances.workload_values import WorkloadValuesResolver
 from application.services.dependencies import get_service_service
 from core.tasks.dependencies import get_task_service
 from core.users.model import UserDTO
@@ -66,6 +69,8 @@ async def get_service_instance_task(
         event_sender=EventSender(entity_name="service_instance"),
         action=action,
         binding_delivery=BindingDelivery(session=session),
+        deployments=DeploymentService(get_service_instance_service(session=session)),
+        workload_values=WorkloadValuesResolver(session=session),
     )
 
 

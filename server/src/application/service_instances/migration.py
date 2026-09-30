@@ -15,7 +15,8 @@ from application.services.schema import ALIAS_PATTERN
 
 from .model import ServiceResourceRole
 
-ANCHOR_TEMPLATE = "service"
+# `service_anchor` is the current key; installs created before it still use `service`.
+ANCHOR_TEMPLATES = ("service_anchor", "service")
 
 _DEPENDENTS = text("""
     WITH RECURSIVE dep(id) AS (
@@ -116,13 +117,13 @@ async def propose(session: AsyncSession, anchor_id: UUID) -> MigrationProposal:
             text("""
                 SELECT r.id, r.name, r.project_id, (SELECT s.id FROM services s WHERE s.name = r.name LIMIT 1) AS sid
                 FROM resources r JOIN templates t ON t.id = r.template_id
-                WHERE r.id = :id AND t.template = :tpl
-            """),
-            {"id": anchor_id, "tpl": ANCHOR_TEMPLATE},
+                WHERE r.id = :id AND t.template IN :tpl
+            """).bindparams(bindparam("tpl", expanding=True)),
+            {"id": anchor_id, "tpl": list(ANCHOR_TEMPLATES)},
         )
     ).one_or_none()
     if anchor is None:
-        raise ValueError(f"Resource {anchor_id} is not a '{ANCHOR_TEMPLATE}' anchor")
+        raise ValueError(f"Resource {anchor_id} is not a service anchor ({', '.join(ANCHOR_TEMPLATES)})")
 
     proposal = MigrationProposal(
         anchor_id=anchor.id,
@@ -207,10 +208,10 @@ async def list_anchors(session: AsyncSession, project_id: UUID | None) -> list[t
     rows = await session.execute(
         text("""
             SELECT r.id, r.name FROM resources r JOIN templates t ON t.id = r.template_id
-            WHERE t.template = :tpl AND r.state <> 'DESTROYED'
+            WHERE t.template IN :tpl AND r.state <> 'DESTROYED'
               AND (CAST(:project AS uuid) IS NULL OR r.project_id = :project)
             ORDER BY r.name
-        """),
-        {"tpl": ANCHOR_TEMPLATE, "project": project_id},
+        """).bindparams(bindparam("tpl", expanding=True)),
+        {"tpl": list(ANCHOR_TEMPLATES), "project": project_id},
     )
     return [(row.id, row.name) for row in rows]
