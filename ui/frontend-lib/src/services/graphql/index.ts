@@ -4,3 +4,4 @@ export * from "./queries";
 export * from "./serviceInstances";
 export * from "./serviceSpec";
 export * from "./transforms";
+export * from "./workload";

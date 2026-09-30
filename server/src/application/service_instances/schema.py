@@ -81,6 +81,7 @@ class ServiceInstanceResponse(BaseModel):
     target_spec_revision: int | None = Field(default=None)
     workflow_id: uuid.UUID | None = Field(default=None)
     binding_state: dict[str, Any] | None = Field(default=None)
+    workload_version: str | None = Field(default=None)
     state: ModelState = Field(default=ModelState.PROVISION)
     status: ModelStatus = Field(default=ModelStatus.READY)
     resources: list[ServiceInstanceResourceResponse] = Field(default_factory=list)

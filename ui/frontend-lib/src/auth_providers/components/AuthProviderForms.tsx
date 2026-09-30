@@ -1,6 +1,6 @@
 import { Control, Controller, FieldErrors } from "react-hook-form";
 
-import { TextField } from "@mui/material";
+import { Autocomplete, TextField } from "@mui/material";
 
 interface FormValues {
   configuration: object;
@@ -227,6 +227,49 @@ export const renderFieldsForProvider = (
                 fullWidth
                 margin="normal"
                 error={!!(errors.configuration as FieldErrors)?.token_ttl}
+              />
+            )}
+          />
+        </>
+      );
+
+    case "github_oidc":
+      return (
+        <>
+          <Controller
+            name="configuration.audience"
+            control={control}
+            defaultValue="infrakitchen"
+            render={({ field }) => (
+              <TextField
+                {...field}
+                label="Audience"
+                helperText="The audience GitHub Actions workflows request their token for"
+                fullWidth
+                margin="normal"
+                error={!!(errors.configuration as FieldErrors)?.audience}
+              />
+            )}
+          />
+          <Controller
+            name="configuration.allowed_owners"
+            control={control}
+            defaultValue={[]}
+            render={({ field }) => (
+              <Autocomplete
+                multiple
+                freeSolo
+                options={[]}
+                value={field.value ?? []}
+                onChange={(_, value) => field.onChange(value)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Allowed GitHub owners"
+                    helperText="Organizations or users whose workflows may sign in; empty allows any. Press Enter to add."
+                    margin="normal"
+                  />
+                )}
               />
             )}
           />

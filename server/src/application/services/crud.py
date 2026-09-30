@@ -123,6 +123,9 @@ class ServiceCRUD:
 
     async def load_catalog(self, spec: ServiceSpec) -> Catalog:
         keys = {claim.template for claim in spec.claims}
+        workload = spec.managed_workload
+        if workload is not None:
+            keys.add(workload.template)
         if not keys:
             return Catalog(templates_by_key={})
         templates = list(
@@ -151,6 +154,8 @@ class ServiceCRUD:
         }
 
         pinned = {claim.source_code_version_id for claim in spec.claims if claim.source_code_version_id}
+        if workload is not None and workload.source_code_version_id:
+            pinned.add(workload.source_code_version_id)
         versions: dict[UUID, CatalogVersion] = {}
         if pinned:
             rows = await self.session.execute(
@@ -207,7 +212,17 @@ class ServiceCRUD:
             landing_zone=tuple(
                 PlacedResource(id=r.id, template_id=r.template_id, name=r.name) for r in environment.parent_resources
             ),
+            tier=environment.tier,
+            region=environment.region,
+            cluster_name=environment.cluster_name,
         )
+
+    async def workload_version(self, service_instance_id: UUID) -> str | None:
+        return (
+            await self.session.execute(
+                select(ServiceInstance.workload_version).where(ServiceInstance.id == service_instance_id)
+            )
+        ).scalar_one_or_none()
 
     async def load_instance(
         self, service_id: UUID | str, environment_id: UUID | str

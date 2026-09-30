@@ -10,7 +10,7 @@ from core.users.model import UserDTO
 class ProviderFixture(TypedDict):
     """Fixture definition for auth providers."""
 
-    auth_provider: Literal["microsoft", "guest", "github", "google", "backstage", "ik_service_account"]
+    auth_provider: Literal["microsoft", "guest", "github", "google", "backstage", "ik_service_account", "github_oidc"]
     name: str
     enabled: bool
     filter_by_domain: list[str]

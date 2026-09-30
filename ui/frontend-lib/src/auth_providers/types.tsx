@@ -10,6 +10,7 @@ export interface AuthProviderCreate {
     | "gitlab"
     | "backstage"
     | "ik_service_account"
+    | "github_oidc"
     | "";
   filterByDomain: string[];
   enabled: boolean;

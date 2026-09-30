@@ -142,7 +142,9 @@ export const ServiceBindings = ({
     try {
       await ikApi.graphqlRequest(UPDATE_SERVICE_MUTATION, {
         id: serviceId,
-        input: { spec: { claims: spec?.claims ?? [], bindings: rows } },
+        input: {
+          spec: { ...spec, claims: spec?.claims ?? [], bindings: rows },
+        },
       });
       notify(
         "Bindings saved; reconcile each environment to deliver them",

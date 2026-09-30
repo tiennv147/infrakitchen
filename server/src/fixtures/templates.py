@@ -27,9 +27,9 @@ template_fixtures: list[TemplateFixture] = [
         "abstract": True,
     },
     {
-        "name": "Service",
-        "description": get_sentence(),
-        "template": "service",
+        "name": "Service Anchor",
+        "description": "Carries service_name and other settings that resources of one service inherit.",
+        "template": "service_anchor",
         "labels": ["service", "cloud"],
         "configuration": TemplateConfig(),
         "abstract": True,
@@ -88,7 +88,17 @@ template_fixtures: list[TemplateFixture] = [
             allowed_provider_integration_types=["aws"],
             naming_convention="aws-redis-iam-credentials-{environment_name}-{region}-{policy_name}",
         ),
-        "parent": ["aws_redis", "service"],
+        "parent": ["aws_redis", "service_anchor"],
+    },
+    {
+        "name": "Helm Workload",
+        "description": "Applies a service's Helm release. Module: docs/examples/templates/helm-workload",
+        "template": "helm_workload",
+        "labels": ["kubernetes", "helm", "workload"],
+        "configuration": TemplateConfig(
+            allowed_provider_integration_types=["aws"],
+            naming_convention="workload-{release_name}-{environment_name}",
+        ),
     },
 ]
 

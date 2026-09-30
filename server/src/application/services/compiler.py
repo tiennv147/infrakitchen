@@ -14,7 +14,7 @@ from application.workflows.functions import topological_levels
 from application.workflows.schema import WiringRule, WorkflowCreate, WorkflowStepCreate
 from core.constants.model import ModelStatus
 
-from .schema import ClaimSpec, ServiceSpec
+from .schema import WORKLOAD_ALIAS, ClaimSpec, ServiceSpec, WorkloadSpec
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,9 @@ class EnvironmentTarget:
     storage_path_prefix: str | None = None
     workspace_id: UUID | None = None
     landing_zone: tuple[PlacedResource, ...] = ()
+    tier: str = "dev"
+    region: str | None = None
+    cluster_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -191,6 +194,20 @@ def validate_spec_against_catalog(spec: ServiceSpec, catalog: Catalog) -> list[s
                     f"Binding '{binding.key}': output '{ref.output}' of '{template.key}' is not published for "
                     f"binding (allowed: {', '.join(template.binding_outputs)})"
                 )
+
+    workload = spec.managed_workload
+    if workload is not None:
+        template = catalog.templates_by_key.get(workload.template)
+        if template is None:
+            errors.append(f"Workload: template '{workload.template}' does not exist")
+        elif template.abstract or not template.enabled:
+            errors.append(f"Workload: template '{workload.template}' is abstract or disabled")
+        elif workload.source_code_version_id is not None:
+            version = catalog.versions.get(workload.source_code_version_id)
+            if version is None or version.template_id != template.id:
+                errors.append(
+                    f"Workload: version {workload.source_code_version_id} is not a version of '{workload.template}'"
+                )
     return errors
 
 
@@ -275,7 +292,8 @@ def compile_service_spec(
 
     claimed = {claim.alias for claim in spec.claims}
     for resource in owned:
-        if resource.alias in claimed or resource.role == "referenced":
+        # The workload is applied separately and survives switching the workload to external mode.
+        if resource.alias in claimed or resource.role in ("referenced", "workload"):
             continue
         plan.items.append(
             PlanItem(
@@ -468,3 +486,164 @@ def _plan_existing(
         changes=changes,
     )
     return item, step
+
+
+def workload_variables(
+    workload: WorkloadSpec,
+    service_name: str,
+    environment: EnvironmentTarget,
+    version: str | None,
+    values: list[str],
+    values_commit: str | None,
+) -> dict[str, Any]:
+    """Inputs of the workload template (a helm_release wrapper)."""
+    return {
+        "release_name": workload.release_name or service_name,
+        "namespace": workload.namespace or service_name,
+        "chart": workload.chart,
+        "chart_version": workload.chart_version,
+        "image_tag_key": workload.image_tag_key,
+        "image_tag": version,
+        "values": values,
+        "values_commit": values_commit,
+        "atomic": workload.atomic,
+        "wait": workload.wait,
+        "timeout": workload.timeout,
+        "cleanup_on_fail": workload.cleanup_on_fail,
+        "environment_name": environment.name,
+        "cluster_name": environment.cluster_name,
+        "region": environment.region,
+    }
+
+
+def _shown(name: str, value: Any) -> Any:
+    # Values files can be large; the plan shows how many and from which commit.
+    if name == "values" and isinstance(value, list):
+        return f"{len(value)} values files"
+    return value
+
+
+def compile_workload(
+    *,
+    service_id: UUID,
+    service_name: str,
+    workload: WorkloadSpec,
+    catalog: Catalog,
+    environment: EnvironmentTarget,
+    owned: list[OwnedResource],
+    created_by: UUID,
+    version: str | None,
+    values: list[str] | None,
+    values_commit: str | None,
+    anchor: PlacedResource | None = None,
+    service_instance_id: UUID | None = None,
+) -> CompiledService:
+    """A one-step workflow that applies the Helm release. ``values=None`` keeps the applied values (plan preview)."""
+    plan = ServicePlan(service_id=service_id, environment_id=environment.id, service_instance_id=service_instance_id)
+    template = catalog.templates_by_key.get(workload.template)
+    if template is None:
+        plan.errors.append(f"Workload: template '{workload.template}' does not exist")
+        return CompiledService(plan=plan, workflow=None)
+
+    existing = next((r for r in owned if r.alias == WORKLOAD_ALIAS), None)
+    if existing is not None and existing.template_id != template.id:
+        plan.errors.append(f"Workload: the release was created from another template than '{template.key}'")
+        return CompiledService(plan=plan, workflow=None)
+
+    if values is None:
+        values = list((existing.variables.get("values") if existing else None) or [])
+        values_commit = existing.variables.get("values_commit") if existing else None
+    variables = workload_variables(workload, service_name, environment, version, values, values_commit)
+    if environment.cluster_name is None:
+        plan.errors.append(f"Workload: environment '{environment.name}' has no cluster name")
+        return CompiledService(plan=plan, workflow=None)
+
+    if existing is None:
+        claim = ClaimSpec(
+            alias=WORKLOAD_ALIAS, template=template.key, source_code_version_id=workload.source_code_version_id
+        )
+        parent_ids, _, parent_labels, errors = _resolve_parents(claim, template, catalog, environment, anchor, {}, {})
+        errors.extend(_create_problems(claim, template, catalog))
+        if errors:
+            plan.errors.extend(error.replace(f"Claim '{WORKLOAD_ALIAS}'", "Workload") for error in errors)
+            return CompiledService(plan=plan, workflow=None)
+        version_id = workload.source_code_version_id or catalog.latest_version_by_template[template.id]
+        storage_path = default_storage_path(environment, service_name, WORKLOAD_ALIAS)
+        step = WorkflowStepCreate(
+            template_id=template.id,
+            position=0,
+            step_key=WORKLOAD_ALIAS,
+            resolved_variables=variables,
+            source_code_version_id=version_id,
+            parent_resource_ids=parent_ids,
+            integration_ids=list(environment.integration_ids),
+            storage_id=environment.storage_id,
+            storage_path=storage_path,
+            workspace_id=environment.workspace_id,
+        )
+        item = PlanItem(
+            alias=WORKLOAD_ALIAS,
+            action=PlanAction.CREATE,
+            role="workload",
+            template=template.key,
+            template_id=template.id,
+            position=0,
+            source_code_version_id=version_id,
+            storage_path=storage_path,
+            parents=parent_labels,
+            changes=[PlanChange(field=k, after=_shown(k, v)) for k, v in sorted(variables.items())],
+        )
+    else:
+        changes = [
+            PlanChange(field=k, before=_shown(k, existing.variables.get(k)), after=_shown(k, v))
+            for k, v in sorted(variables.items())
+            if existing.variables.get(k) != v
+        ]
+        version_id = existing.source_code_version_id
+        if workload.source_code_version_id and workload.source_code_version_id != version_id:
+            changes.append(
+                PlanChange(
+                    field="source_code_version_id",
+                    before=str(version_id) if version_id else None,
+                    after=str(workload.source_code_version_id),
+                )
+            )
+            version_id = workload.source_code_version_id
+        if not existing.settled:
+            changes.append(
+                PlanChange(
+                    field="state",
+                    before=f"{existing.state.lower()}/{existing.status.lower()}",
+                    after="provisioned/done",
+                )
+            )
+        step = WorkflowStepCreate(
+            template_id=template.id,
+            position=0,
+            step_key=WORKLOAD_ALIAS,
+            status=ModelStatus.PENDING if changes else ModelStatus.DONE,
+            resource_id=existing.id,
+            resolved_variables={**existing.variables, **variables},
+            source_code_version_id=version_id,
+            parent_resource_ids=list(existing.parent_ids),
+            integration_ids=list(existing.integration_ids),
+            storage_id=existing.storage_id,
+            storage_path=existing.storage_path,
+            workspace_id=existing.workspace_id,
+        )
+        item = PlanItem(
+            alias=WORKLOAD_ALIAS,
+            action=PlanAction.UPDATE if changes else PlanAction.NO_OP,
+            role="workload",
+            template=template.key,
+            template_id=template.id,
+            resource_id=existing.id,
+            resource_name=existing.name,
+            position=0,
+            source_code_version_id=version_id,
+            storage_path=existing.storage_path,
+            changes=changes,
+        )
+
+    plan.items.append(item)
+    return CompiledService(plan=plan, workflow=WorkflowCreate(created_by=created_by, steps=[step]))

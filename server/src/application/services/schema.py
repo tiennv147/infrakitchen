@@ -10,6 +10,16 @@ from core.users.schema import UserShort
 
 ALIAS_PATTERN = r"[a-z][a-z0-9_]{0,62}"
 BINDING_KEY_PATTERN = r"[A-Za-z_][A-Za-z0-9_.-]{0,127}"
+# Reserved alias of the workload resource; claims cannot use it.
+WORKLOAD_ALIAS = "workload"
+WORKLOAD_MODES = ("external", "managed")
+VALUES_PLACEHOLDERS = ("service_name", "environment", "region", "tier")
+# Container image tag rules, so a version is always a valid tag.
+IMAGE_TAG_PATTERN = r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}"
+_K8S_NAME = r"[a-z0-9]([-a-z0-9]{0,51}[a-z0-9])?"
+_VALUES_PATH = re.compile(r"^[A-Za-z0-9_.{}/-]+\??$")
+_GIT_REF = re.compile(r"^[A-Za-z0-9_./-]{1,200}$")
+_HELM_KEY = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,200}$")
 # A variable value that is exactly "${alias.outputs.name}" is wired from another claim's output.
 OUTPUT_REF = re.compile(rf"^\$\{{({ALIAS_PATTERN})\.outputs\.([A-Za-z_][A-Za-z0-9_]*)\}}$")
 # Binding values may interpolate any number of references inside literal text.
@@ -106,13 +116,103 @@ class BindingSpec(BaseModel):
         return [OutputRef(alias=m.group(1), output=m.group(2)) for m in BINDING_REF.finditer(self.value)]
 
 
+class WorkloadSpec(BaseModel):
+    """The Helm release that runs the service.
+
+    external: recorded only; CI deploys it. managed: InfraKitchen applies it after the claims and bindings.
+    """
+
+    mode: Literal["external", "managed"] = Field(default="external")
+    chart: str = Field(..., description="Chart reference, e.g. oci://registry/charts/app")
+    chart_version: str = Field(..., description="Pinned chart version")
+    release_name: str | None = Field(default=None, description="Defaults to the service name")
+    namespace: str | None = Field(default=None, description="Defaults to the service name")
+    values_files: list[str] = Field(
+        default_factory=list,
+        description="Paths in the service repository, applied in order. Placeholders: {service_name}, "
+        "{environment}, {region}, {tier}; a trailing ? marks a file as optional",
+    )
+    values_ref: str = Field(default="main", description="Branch or tag of the service repository")
+    template: str = Field(default="helm_workload", description="Template that applies the release (managed mode)")
+    source_code_version_id: uuid.UUID | None = Field(default=None)
+    image_tag_key: str = Field(default="image.tag", description="Chart value set to the deployed version")
+    atomic: bool = Field(default=True, description="Roll back automatically when the release fails")
+    wait: bool = Field(default=True)
+    timeout: int = Field(default=300, ge=1, le=3600, description="Seconds")
+    cleanup_on_fail: bool = Field(default=True)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("chart", "chart_version")
+    @classmethod
+    def validate_required(cls, value: str) -> str:
+        value = value.strip()
+        if not value or any(c.isspace() for c in value):
+            raise ValueError("must be non-empty and contain no whitespace")
+        return value
+
+    @field_validator("release_name", "namespace")
+    @classmethod
+    def validate_k8s_name(cls, value: str | None) -> str | None:
+        if value in (None, ""):
+            return None
+        if not re.fullmatch(_K8S_NAME, value):
+            raise ValueError(f"'{value}' must be a lowercase DNS label of at most 53 characters")
+        return value
+
+    @field_validator("values_files")
+    @classmethod
+    def validate_values_files(cls, value: list[str]) -> list[str]:
+        for path in value:
+            if not _VALUES_PATH.match(path) or path.startswith(("/", "-")) or ".." in path.split("/"):
+                raise ValueError(f"values file '{path}' must be a relative path inside the repository")
+            try:
+                path.format(**{name: "x" for name in VALUES_PLACEHOLDERS})
+            except (KeyError, IndexError, ValueError) as e:
+                raise ValueError(f"Unknown placeholder in '{path}'; use {', '.join(VALUES_PLACEHOLDERS)}") from e
+        return value
+
+    @field_validator("values_ref")
+    @classmethod
+    def validate_values_ref(cls, value: str) -> str:
+        if not _GIT_REF.match(value) or value.startswith("-") or ".." in value:
+            raise ValueError(f"'{value}' is not a valid git ref")
+        return value
+
+    @field_validator("image_tag_key")
+    @classmethod
+    def validate_image_tag_key(cls, value: str) -> str:
+        if not _HELM_KEY.match(value):
+            raise ValueError(f"'{value}' is not a valid chart value path")
+        return value
+
+    def values_paths(
+        self, service_name: str, environment: str, region: str | None, tier: str
+    ) -> list[tuple[str, bool]]:
+        """Rendered values file paths in order, with whether each one is optional."""
+        context = {"service_name": service_name, "environment": environment, "region": region or "", "tier": tier}
+        return [(path.rstrip("?").format(**context), path.endswith("?")) for path in self.values_files]
+
+
+def validate_image_tag(value: str) -> str:
+    value = value.strip()
+    if not re.fullmatch(IMAGE_TAG_PATTERN, value):
+        raise ValueError(f"'{value}' is not a valid image tag")
+    return value
+
+
 class ServiceSpec(BaseModel):
     """Declarative description of the infrastructure a service claims in every environment."""
 
     claims: list[ClaimSpec] = Field(default_factory=list)
     bindings: list[BindingSpec] = Field(default_factory=list)
+    workload: WorkloadSpec | None = Field(default=None)
 
     model_config = ConfigDict(extra="forbid")
+
+    @property
+    def managed_workload(self) -> WorkloadSpec | None:
+        return self.workload if self.workload is not None and self.workload.mode == "managed" else None
 
     @model_validator(mode="after")
     def validate_references(self) -> "ServiceSpec":
@@ -120,6 +220,8 @@ class ServiceSpec(BaseModel):
         duplicates = sorted({alias for alias in aliases if aliases.count(alias) > 1})
         if duplicates:
             raise ValueError(f"Duplicate claim aliases: {', '.join(duplicates)}")
+        if self.workload is not None and WORKLOAD_ALIAS in aliases:
+            raise ValueError(f"The alias '{WORKLOAD_ALIAS}' is reserved for the workload")
 
         keys = [binding.key for binding in self.bindings]
         duplicate_keys = sorted({key for key in keys if keys.count(key) > 1})

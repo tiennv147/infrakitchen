@@ -1,8 +1,9 @@
+from datetime import datetime
 from enum import StrEnum, unique
 from typing import Any
 import uuid
 
-from sqlalchemy import JSON, UUID, CheckConstraint, ForeignKey, Index, String, text
+from sqlalchemy import JSON, UUID, CheckConstraint, DateTime, ForeignKey, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from application.environments.model import Environment
@@ -82,6 +83,9 @@ class ServiceInstance(BaseEntity):
     # What the reconciler last wrote to the binding sink: sink, path, managed keys, whether it created them.
     binding_state: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
+    # Image tag of the last successful managed-workload apply. Kept out of Service.spec so bumps are not drift.
+    workload_version: Mapped[str | None] = mapped_column(nullable=True)
+
     resources: Mapped[list[ServiceInstanceResource]] = relationship(
         "ServiceInstanceResource", lazy="selectin", cascade="all, delete-orphan"
     )
@@ -89,3 +93,61 @@ class ServiceInstance(BaseEntity):
     creator: Mapped[User] = relationship("User", lazy="joined")
 
     __table_args__ = (Index("ix_service_instance_service_environment", "service_id", "environment_id", unique=True),)
+
+
+@unique
+class DeploymentStatus(StrEnum):
+    WAITING = "waiting"
+    # The instance is running (or awaiting approval for) this deployment.
+    ACTIVE = "active"
+    DONE = "done"
+    ERROR = "error"
+    CANCELLED = "cancelled"
+    SUPERSEDED = "superseded"
+
+
+class ServiceDeployment(Base):
+    """One requested workload version for one environment; a batch rolls out in position order."""
+
+    __tablename__: str = "service_deployments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    service_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("services.id", ondelete="CASCADE"), nullable=False
+    )
+    service_instance_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("service_instances.id", ondelete="CASCADE"), nullable=False
+    )
+    environment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("environments.id", ondelete="CASCADE"), nullable=False
+    )
+    environment: Mapped[Environment] = relationship("Environment", lazy="joined")
+    batch_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    position: Mapped[int] = mapped_column(nullable=False, default=0)
+    version: Mapped[str] = mapped_column(nullable=False)
+    previous_version: Mapped[str | None] = mapped_column(nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default=DeploymentStatus.WAITING)
+    # api, rollback or promote
+    source: Mapped[str] = mapped_column(String, nullable=False, default="api")
+    message: Mapped[str | None] = mapped_column(nullable=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    creator: Mapped[User] = relationship("User", lazy="joined")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('waiting', 'active', 'done', 'error', 'cancelled', 'superseded')",
+            name="ck_service_deployments_status",
+        ),
+        Index("ix_service_deployments_instance", "service_instance_id", "created_at"),
+        Index("ix_service_deployments_batch", "batch_id", "position"),
+        # At most one deployment runs per instance at a time.
+        Index(
+            "ix_service_deployments_one_active",
+            "service_instance_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )

@@ -7,6 +7,7 @@ export interface GqlServiceInstance {
   status: string;
   createdAt: string;
   specRevisionApplied: number | null;
+  workloadVersion: string | null;
   workflowId: string | null;
   environment: GqlEnvironmentShort | null;
   resources: {
@@ -25,6 +26,7 @@ export const SERVICE_INSTANCES_QUERY = `
       status
       createdAt
       specRevisionApplied
+      workloadVersion
       workflowId
       environment { ${ENVIRONMENT_SHORT_FIELDS} }
       resources { id alias role resource { id name } }

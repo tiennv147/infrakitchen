@@ -77,7 +77,7 @@ export const ServiceDependencies = ({
     try {
       await ikApi.graphqlRequest(UPDATE_SERVICE_MUTATION, {
         id: serviceId,
-        input: { spec: { claims: next, bindings: spec?.bindings ?? [] } },
+        input: { spec: { ...spec, claims: next } },
       });
       notify(message, "success");
       setEditing(undefined);
