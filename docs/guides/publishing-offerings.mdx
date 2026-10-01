@@ -1,0 +1,60 @@
+---
+title: Publishing Offerings
+---
+
+This guide is for platform engineers who make infrastructure available to service teams. Developers only see what you
+publish here; everything else in InfraKitchen stays internal.
+
+## 1. Prepare environments
+
+An **environment** is one deployment target. Create one per tier and region (Environments → Create):
+
+| Field | Purpose |
+|---|---|
+| Tier and rank | Rollout order: dev before staging before prod, then by rank |
+| Integrations, storage, workspace | Credentials, Terraform state location and workspace for everything created there |
+| Landing zone | Existing resources new claims attach under, for example the environment's VPC |
+| Binding sink | Where runtime bindings are written; defaults to AWS Secrets Manager at `config-{service_name}` |
+| Cluster name, region | Used by managed workloads |
+| Approval required | Deploys wait for an approval (recommended for prod) |
+
+## 2. Publish an offering
+
+1. Import the module (Templates → Import) or create the template and add a version.
+2. Give it a **naming convention** so every claimed resource gets a predictable name.
+3. On the template, turn on **Claimable**. Only claimable, enabled, non-abstract templates appear in the developer's
+   claim picker.
+4. Set **binding outputs**: the outputs that are meaningful as connection details (endpoints, ports, user names).
+   Bindings may only reference published outputs, which keeps internal outputs out of application secrets.
+5. Make sure the template's parent templates exist in each environment's landing zone, or can be claimed alongside it.
+
+Check it end to end: create a test service that claims the offering, open **Plan** for a dev environment, and confirm
+the placement and naming are what you expect before anyone deploys.
+
+## 3. Bindings in the cluster
+
+The default sink writes a JSON document to AWS Secrets Manager under `config-<service>`. The shared chart mounts it
+through the Secrets Store CSI driver at `/secrets`. If the cluster should also get the `SecretProviderClass`, set
+**SecretProviderClass** and the cluster on the environment's binding sink: InfraKitchen creates it when missing and
+never changes one it did not create.
+
+The worker's AWS role needs `secretsmanager:GetSecretValue`, `PutSecretValue`, `CreateSecret`, `TagResource` and
+`DeleteSecret` on `config-*`, and cluster access for Kubernetes sinks.
+
+## 4. Managed workloads
+
+To let InfraKitchen deploy applications:
+
+1. Import `docs/examples/templates/helm-workload` as the `helm_workload` template. It wraps `helm_release` with
+   `atomic`, `wait`, `timeout` and `cleanup_on_fail`, so a failed rollout rolls back like `helm upgrade --atomic`.
+2. Set each environment's **cluster name** and **region**.
+3. If CI should deploy with GitHub OIDC, add a `github_oidc` auth provider (Administration → Auth Providers) with the
+   audience your workflows request and the GitHub organizations allowed to sign in.
+
+## Checklist
+
+- [ ] Environments have integrations, storage, landing zone, binding sink and approval policy
+- [ ] Each offering is claimable, enabled, named, and publishes its binding outputs
+- [ ] A test service plans cleanly in every tier
+- [ ] The worker can write the binding sink
+- [ ] (Managed workloads) `helm_workload` is imported and environments have a cluster name

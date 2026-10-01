@@ -14,6 +14,7 @@ import { Revision } from "../../revision/Revision";
 import { ServiceBindings } from "./ServiceBindings";
 import { ServiceDependencies } from "./ServiceDependencies";
 import { ServiceEnvironments } from "./ServiceEnvironments";
+import { ServiceGraph } from "./ServiceGraph";
 import { ServiceNotificationSubscribersTable } from "./ServiceNotificationSubscribersTable";
 import { ServiceOverview } from "./ServiceOverview";
 import { ServicePermissions } from "./ServicePermissions";
@@ -67,6 +68,10 @@ export const ServiceContent = () => {
           canEdit={actions.includes("edit")}
         />
       ),
+    },
+    {
+      label: "Graph View",
+      content: <ServiceGraph serviceId={entity.id} />,
     },
     {
       label: "Policies",

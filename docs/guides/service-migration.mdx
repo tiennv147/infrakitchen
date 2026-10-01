@@ -1,0 +1,63 @@
+---
+title: Migrating to Services
+---
+
+How to bring existing infrastructure and applications under Services without recreating anything.
+
+## Adopt existing resources
+
+When a service's infrastructure already exists as InfraKitchen resources, adopt it instead of claiming new ones:
+
+1. On the service's **Environments** tab, add the environment and choose **Adopt resources**.
+2. Pick each resource and give it an alias. Use the `referenced` role for shared infrastructure the service must not
+   own, such as a Kafka cluster used by many services.
+3. InfraKitchen links the resources and writes matching claims into the spec. The first plan for that environment is
+   all no-ops; nothing is provisioned.
+
+A resource can only be owned by one service. Adopting a resource another service owns is refused; reference it instead.
+
+## Migrate from service anchors
+
+Many installations group a service's resources under an abstract **service anchor** resource. **Services → Migrate**
+proposes a Service from an anchor: it finds the resources depending on the anchor, assigns each to an environment by its
+landing zone, suggests aliases, and marks co-parents as `referenced`. Review the proposal, adjust aliases and roles,
+then apply it. Resources it cannot place are listed so you can adopt them by hand.
+
+### Rename the anchor template
+
+New installations call the anchor template `service_anchor` ("Service Anchor"). Older ones use `service`. Both are
+recognised, so renaming is optional. The name can be changed on the template page; the key cannot be edited through
+the API, so an administrator changes it in the database:
+
+```sql
+UPDATE templates SET template = 'service_anchor', name = 'Service Anchor' WHERE template = 'service';
+```
+
+Then update any references to the old key in your fixtures or automation.
+
+Existing resources are unaffected: they point at the template by id, not by key. Keep the template; its resources carry
+settings such as `service_name` that their children inherit.
+
+## From external CD to managed workloads
+
+A service starts in **external** mode: InfraKitchen provisions the infrastructure and writes the bindings, and the
+existing pipeline keeps deploying. Nothing in CI changes. Moving to **managed** mode hands deployment to InfraKitchen:
+
+1. **Record the workload.** On the Workload tab set the chart, chart version, namespace and values files, still in
+   `external` mode. Check the values file paths resolve for every environment.
+2. **Adopt Helm ownership.** If the application was deployed with `helm template | kubectl apply`, its objects are not
+   owned by a Helm release and the first managed apply would fail. Mark them first:
+
+   ```bash
+   docs/examples/templates/helm-workload/adopt-helm-ownership.sh --release <release> --namespace <namespace>
+   # review the dry run, then:
+   docs/examples/templates/helm-workload/adopt-helm-ownership.sh --release <release> --namespace <namespace> --apply
+   ```
+
+3. **Switch to managed** and deploy the version that is already running with `setWorkloadVersion`. The release adopts
+   the live objects without recreating them.
+4. **Move CI.** Replace the pipeline's deploy step with a call to `setWorkloadVersion` (the Workload tab shows a GitHub
+   Actions snippet), using GitHub OIDC or a deploy token.
+5. **Measure** a few deploys against the old pipeline before migrating services that deploy often.
+
+Switching back to external mode never destroys the release; the workload is simply no longer applied.
