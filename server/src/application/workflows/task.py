@@ -98,6 +98,17 @@ class WorkflowTask:
                 flag_modified(step, "resolved_variables")
                 self.logger.info(f"Resolved wired variables for step {step.id}: {list(wired_vars.keys())}")
 
+            variables = dict(step.resolved_variables)
+            if step.source_code_version_id is not None:
+                # Optional variables the step leaves unset take the version's default, as in the resource form.
+                schema = await self.resource_service.get_variable_schema(
+                    source_code_version_id=step.source_code_version_id, resource_ids=parent_resources
+                )
+                for variable in schema:
+                    if variable.name in variables or variable.required or variable.sensitive or variable.restricted:
+                        continue
+                    variables[variable.name] = variable.value
+
             resource = ResourceCreate(
                 name=template.configuration.naming_convention,
                 template_id=step.template_id,
@@ -105,7 +116,7 @@ class WorkflowTask:
                 parents=parent_resources,
                 integration_ids=[i.id for i in step.integration_ids],
                 secret_ids=[s.id for s in step.secret_ids],
-                variables=[Variables(name=k, value=v) for k, v in step.resolved_variables.items()],
+                variables=[Variables(name=k, value=v) for k, v in variables.items()],
                 dependency_config=[],
                 dependency_tags=[],
                 storage_id=step.storage_id,
