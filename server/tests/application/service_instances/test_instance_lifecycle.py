@@ -7,7 +7,7 @@ import pytest
 from application.service_instances import service as service_module
 from application.service_instances.schema import AdoptResourceItem, AdoptResources
 from application.service_instances.service import ServiceInstanceService
-from application.services.compiler import CompiledService, ServicePlan
+from application.services.compiler import CompiledService, PlanAction, PlanItem, ServicePlan
 from core.base_models import PatchBodyModel
 from core.constants.model import ModelActions, ModelState, ModelStatus
 from core.errors import DependencyError, EntityWrongState
@@ -240,6 +240,41 @@ class TestAdopt:
         )
 
         assert instance.spec_revision_applied == 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("extra_spec", "plan_action", "applied"),
+        [
+            ({}, PlanAction.NO_OP, True),
+            ({}, PlanAction.CREATE, False),
+            ({"bindings": [{"key": "A", "value": "1"}]}, PlanAction.NO_OP, False),
+        ],
+    )
+    async def test_new_environment_adopting_existing_claims(self, svc, extra_spec, plan_action, applied):
+        instance = _instance(applied=None, state=ModelState.PROVISION, status=ModelStatus.READY)
+        rid = uuid4()
+        claim = {"alias": "cache", "template": "aws_redis", "variables": {"node_type": "small"}, "adopted": True}
+        self._prepare(svc, instance, [_resource(rid)], spec={"claims": [claim], **extra_spec}, spec_revision=4)
+        svc.services.compile.return_value = CompiledService(
+            plan=ServicePlan(
+                service_id=instance.service_id,
+                environment_id=instance.environment_id,
+                items=[PlanItem(alias="cache", action=plan_action, role="dependency")],
+            ),
+            workflow=None,
+        )
+
+        await svc.adopt_resources(
+            AdoptResources(
+                service_id=instance.service_id,
+                environment_id=instance.environment_id,
+                resources=[AdoptResourceItem(alias="cache", resource_id=rid)],
+            ),
+            Mock(id=uuid4()),
+        )
+
+        assert (instance.spec_revision_applied == 4) is applied
+        assert (instance.state == ModelState.PROVISIONED) is applied
 
     @pytest.mark.asyncio
     async def test_busy_instance_refuses_adoption(self, svc):

@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from application.environments.model import Environment
 from application.projects.model import Project
 from application.resources.model import Resource
+from application.services.compiler import PlanAction
 from application.services.model import Service
 from application.services.schema import ServiceCreate, ServiceSpec, ServiceUpdate
 from application.services.service import ServiceService
@@ -287,9 +288,7 @@ class ServiceInstanceService:
             raise EntityNotFound("Service not found")
         old_spec = ServiceSpec.model_validate(service.spec or {})
         old_revision = service.spec_revision
-        was_current = instance.spec_revision_applied == old_revision or (
-            instance.spec_revision_applied is None and not old_spec.claims
-        )
+        was_current = instance.spec_revision_applied == old_revision
 
         owned_items = [i for i in items if i.role != ServiceResourceRole.REFERENCED]
         if owned_items:
@@ -317,13 +316,23 @@ class ServiceInstanceService:
                 await self.services.update_service(str(service.id), ServiceUpdate(spec=new_spec), requester)
                 await self.services.crud.refresh(service)
 
-        if was_current:
+        if was_current or (
+            instance.spec_revision_applied is None and await self._nothing_to_apply(service, instance, requester)
+        ):
             instance.spec_revision_applied = service.spec_revision
             instance.state = ModelState.PROVISIONED
             instance.status = ModelStatus.DONE
 
         await self.audit_log_handler.create_log(instance.id, requester.id, ModelActions.ADOPT)
         return await self.send(instance, ModelActions.ADOPT)
+
+    async def _nothing_to_apply(self, service: Service, instance: ServiceInstance, requester: UserDTO) -> bool:
+        """The environment already matches the spec: every claim is a no-op and nothing else needs delivering."""
+        spec = ServiceSpec.model_validate(service.spec or {})
+        if spec.bindings or spec.managed_workload is not None:
+            return False
+        plan = (await self.services.compile(service.id, instance.environment_id, requester)).plan
+        return not plan.errors and all(item.action == PlanAction.NO_OP for item in plan.items)
 
     async def apply_migration(self, request: ApplyServiceMigration, requester: UserDTO) -> Service:
         """Create (or reuse) the Service for an anchor and adopt the reviewed resources environment by environment."""
