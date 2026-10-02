@@ -1,4 +1,5 @@
 export * from "./fragments";
+export * from "./graph";
 export * from "./mutations";
 export * from "./queries";
 export * from "./serviceInstances";

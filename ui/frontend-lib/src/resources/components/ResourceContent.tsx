@@ -11,8 +11,10 @@ import {
 } from "../../common/components/cards/TabbedContent";
 import { EntityGraphViewTab } from "../../common/components/graph/GraphViewTab";
 import { EntityTreeViewTab } from "../../common/components/tree/TreeViewTab";
+import { useConfig } from "../../common/context/ConfigContext";
 import { useEntityProvider } from "../../common/context/EntityContext";
 import { Revision } from "../../revision/Revision";
+import { ResourceImpactGraph } from "../../services/components/ServiceGraph";
 
 import { DependencyConfiguration } from "./DependencyConfiguration";
 import { ResourceNotificationSubscribersTable } from "./ResourceNotificationSubscribersTable";
@@ -23,6 +25,7 @@ import { TemplateConfiguration } from "./TemplateConfiguration";
 export const ResourceContent = () => {
   const [subscribersRefreshKey, setSubscribersRefreshKey] = useState(0);
   const { entity, userEntityPermissions } = useEntityProvider();
+  const { globalConfig } = useConfig();
 
   if (!entity) return null;
 
@@ -53,6 +56,14 @@ export const ResourceContent = () => {
         />
       ),
     },
+    ...(globalConfig?.services
+      ? [
+          {
+            label: "Service Impact",
+            content: <ResourceImpactGraph resourceId={entity.id} />,
+          },
+        ]
+      : []),
     {
       label: "Policies",
       content: <ResourcePermissions resource={entity} />,

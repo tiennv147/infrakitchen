@@ -5,6 +5,7 @@ The compiler is pure: callers load catalog, environment and owned-resource snaps
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+import json
 from typing import Any
 from uuid import UUID
 
@@ -15,6 +16,9 @@ from application.workflows.schema import WiringRule, WorkflowCreate, WorkflowSte
 from core.constants.model import ModelStatus
 
 from .schema import WORKLOAD_ALIAS, ClaimSpec, ServiceSpec, WorkloadSpec
+
+# Marks the values document generated from WorkloadSpec.app; it always comes first so values files override it.
+APP_VALUES_HEADER = "# infrakitchen: app\n"
 
 
 @dataclass(frozen=True)
@@ -91,6 +95,9 @@ class Catalog:
     latest_version_by_template: dict[UUID, UUID] = field(default_factory=dict)
     # Keys of every template seen, including parents outside the catalog, for readable errors.
     template_key_by_id: dict[UUID, str] = field(default_factory=dict)
+    # Platform app chart used by workloads that describe an `app` and set no chart of their own.
+    app_chart: str | None = None
+    app_chart_version: str | None = None
 
     def key_of(self, template_id: UUID) -> str:
         if template_id in self.template_key_by_id:
@@ -197,6 +204,10 @@ def validate_spec_against_catalog(spec: ServiceSpec, catalog: Catalog) -> list[s
 
     workload = spec.managed_workload
     if workload is not None:
+        if workload_chart(workload, catalog) is None:
+            errors.append(
+                "Workload: no platform app chart is configured (WORKLOAD_APP_CHART); set 'chart' and 'chart_version'"
+            )
         template = catalog.templates_by_key.get(workload.template)
         if template is None:
             errors.append(f"Workload: template '{workload.template}' does not exist")
@@ -488,6 +499,23 @@ def _plan_existing(
     return item, step
 
 
+def workload_chart(workload: WorkloadSpec, catalog: Catalog) -> tuple[str, str] | None:
+    """The chart and version the release uses: its own, or the platform app chart for an `app` workload."""
+    if workload.chart and workload.chart_version:
+        return workload.chart, workload.chart_version
+    if workload.app is not None and catalog.app_chart and catalog.app_chart_version:
+        return catalog.app_chart, catalog.app_chart_version
+    return None
+
+
+def with_app_values(workload: WorkloadSpec, values: list[str]) -> list[str]:
+    """Values files with the document generated from `app` in front, replacing a previously generated one."""
+    files = [v for v in values if not v.startswith(APP_VALUES_HEADER)]
+    if workload.app is None:
+        return files
+    return [APP_VALUES_HEADER + json.dumps(workload.app.chart_values(), indent=2, sort_keys=True)] + files
+
+
 def workload_variables(
     workload: WorkloadSpec,
     service_name: str,
@@ -495,13 +523,14 @@ def workload_variables(
     version: str | None,
     values: list[str],
     values_commit: str | None,
+    chart: tuple[str, str],
 ) -> dict[str, Any]:
     """Inputs of the workload template (a helm_release wrapper)."""
     return {
         "release_name": workload.release_name or service_name,
         "namespace": workload.namespace or service_name,
-        "chart": workload.chart,
-        "chart_version": workload.chart_version,
+        "chart": chart[0],
+        "chart_version": chart[1],
         "image_tag_key": workload.image_tag_key,
         "image_tag": version,
         "values": values,
@@ -553,7 +582,15 @@ def compile_workload(
     if values is None:
         values = list((existing.variables.get("values") if existing else None) or [])
         values_commit = existing.variables.get("values_commit") if existing else None
-    variables = workload_variables(workload, service_name, environment, version, values, values_commit)
+    chart = workload_chart(workload, catalog)
+    if chart is None:
+        plan.errors.append(
+            "Workload: no platform app chart is configured (WORKLOAD_APP_CHART); set 'chart' and 'chart_version'"
+        )
+        return CompiledService(plan=plan, workflow=None)
+    variables = workload_variables(
+        workload, service_name, environment, version, with_app_values(workload, values), values_commit, chart
+    )
     if environment.cluster_name is None:
         plan.errors.append(f"Workload: environment '{environment.name}' has no cluster name")
         return CompiledService(plan=plan, workflow=None)

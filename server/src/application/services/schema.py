@@ -20,6 +20,12 @@ _K8S_NAME = r"[a-z0-9]([-a-z0-9]{0,51}[a-z0-9])?"
 _VALUES_PATH = re.compile(r"^[A-Za-z0-9_.{}/-]+\??$")
 _GIT_REF = re.compile(r"^[A-Za-z0-9_./-]{1,200}$")
 _HELM_KEY = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,200}$")
+# image repository without tag or digest, e.g. 123456789012.dkr.ecr.eu-west-1.amazonaws.com/team/app
+_IMAGE_REPOSITORY = re.compile(r"^[a-z0-9][a-z0-9.-]*(:[0-9]+)?(/[a-z0-9]([a-z0-9._-]*[a-z0-9])?)+$")
+_CPU = re.compile(r"^([0-9]+m|[0-9]+(\.[0-9]{1,3})?)$")
+_MEMORY = re.compile(r"^[0-9]+(Mi|Gi)$")
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+_HTTP_PATH = re.compile(r"^/[A-Za-z0-9._~/-]{0,200}$")
 # A variable value that is exactly "${alias.outputs.name}" is wired from another claim's output.
 OUTPUT_REF = re.compile(rf"^\$\{{({ALIAS_PATTERN})\.outputs\.([A-Za-z_][A-Za-z0-9_]*)\}}$")
 # Binding values may interpolate any number of references inside literal text.
@@ -116,15 +122,83 @@ class BindingSpec(BaseModel):
         return [OutputRef(alias=m.group(1), output=m.group(2)) for m in BINDING_REF.finditer(self.value)]
 
 
+class AppSpec(BaseModel):
+    """A web service described by what is unique to it; the platform app chart supplies the rest."""
+
+    image: str = Field(..., description="Image repository without tag; the deployed version is the tag")
+    port: int = Field(default=8080, ge=1, le=65535, description="Port the container listens on")
+    health_path: str | None = Field(default="/health", description="HTTP path for readiness and liveness probes")
+    replicas: int = Field(default=2, ge=1, le=50)
+    cpu: str = Field(default="100m", description="CPU request, e.g. 100m or 0.5")
+    memory: str = Field(default="128Mi", description="Memory request and limit, e.g. 128Mi")
+    env: dict[str, str] = Field(default_factory=dict, description="Plain environment variables; secrets use bindings")
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("image")
+    @classmethod
+    def validate_image(cls, value: str) -> str:
+        value = value.strip()
+        if not _IMAGE_REPOSITORY.match(value):
+            raise ValueError(f"'{value}' must be an image repository without tag or digest, e.g. registry/team/app")
+        return value
+
+    @field_validator("health_path")
+    @classmethod
+    def validate_health_path(cls, value: str | None) -> str | None:
+        if value in (None, ""):
+            return None
+        if not _HTTP_PATH.match(value):
+            raise ValueError(f"'{value}' must be an HTTP path starting with /")
+        return value
+
+    @field_validator("cpu")
+    @classmethod
+    def validate_cpu(cls, value: str) -> str:
+        if not _CPU.match(value):
+            raise ValueError(f"'{value}' is not a CPU quantity, e.g. 100m or 0.5")
+        return value
+
+    @field_validator("memory")
+    @classmethod
+    def validate_memory(cls, value: str) -> str:
+        if not _MEMORY.match(value):
+            raise ValueError(f"'{value}' is not a memory quantity, e.g. 128Mi or 1Gi")
+        return value
+
+    @field_validator("env")
+    @classmethod
+    def validate_env(cls, value: dict[str, str]) -> dict[str, str]:
+        for name in value:
+            if not _ENV_NAME.match(name):
+                raise ValueError(f"'{name}' is not a valid environment variable name")
+        return value
+
+    def chart_values(self) -> dict[str, Any]:
+        """Values of the platform app chart; its values contract is these keys."""
+        values: dict[str, Any] = {
+            "image": {"repository": self.image},
+            "port": self.port,
+            "replicas": self.replicas,
+            "resources": {"cpu": self.cpu, "memory": self.memory},
+            "env": dict(sorted(self.env.items())),
+        }
+        if self.health_path:
+            values["health"] = {"path": self.health_path}
+        return values
+
+
 class WorkloadSpec(BaseModel):
     """The Helm release that runs the service.
 
     external: recorded only; CI deploys it. managed: InfraKitchen applies it after the claims and bindings.
+    With ``app`` the platform app chart is used unless ``chart`` is set; values files then only override.
     """
 
     mode: Literal["external", "managed"] = Field(default="external")
-    chart: str = Field(..., description="Chart reference, e.g. oci://registry/charts/app")
-    chart_version: str = Field(..., description="Pinned chart version")
+    app: AppSpec | None = Field(default=None, description="Describe the service; the platform chart runs it")
+    chart: str | None = Field(default=None, description="Chart reference, e.g. oci://registry/charts/app")
+    chart_version: str | None = Field(default=None, description="Pinned chart version")
     release_name: str | None = Field(default=None, description="Defaults to the service name")
     namespace: str | None = Field(default=None, description="Defaults to the service name")
     values_files: list[str] = Field(
@@ -145,11 +219,23 @@ class WorkloadSpec(BaseModel):
 
     @field_validator("chart", "chart_version")
     @classmethod
-    def validate_required(cls, value: str) -> str:
+    def validate_required(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         value = value.strip()
-        if not value or any(c.isspace() for c in value):
-            raise ValueError("must be non-empty and contain no whitespace")
+        if not value:
+            return None
+        if any(c.isspace() for c in value):
+            raise ValueError("must contain no whitespace")
         return value
+
+    @model_validator(mode="after")
+    def validate_chart_source(self) -> "WorkloadSpec":
+        if (self.chart is None) != (self.chart_version is None):
+            raise ValueError("chart and chart_version are set together")
+        if self.chart is None and self.app is None:
+            raise ValueError("Describe the service under 'app', or set 'chart' and 'chart_version'")
+        return self
 
     @field_validator("release_name", "namespace")
     @classmethod

@@ -41,13 +41,24 @@ import {
   SET_WORKLOAD_VERSION_MUTATION,
   UPDATE_SERVICE_MUTATION,
 } from "../graphql";
-import { ServiceSpec, WorkloadSpec } from "../types";
+import { AppSpec, ServiceSpec, WorkloadSpec } from "../types";
 
 const TAG_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
 const TIER_ORDER: Record<string, number> = { dev: 0, staging: 1, prod: 2 };
 
+const EMPTY_APP: AppSpec = {
+  image: "",
+  port: 8080,
+  health_path: "/health",
+  replicas: 2,
+  cpu: "100m",
+  memory: "128Mi",
+  env: {},
+};
+
 const EMPTY_WORKLOAD: WorkloadSpec = {
   mode: "external",
+  app: null,
   chart: "",
   chart_version: "",
   release_name: null,
@@ -83,30 +94,75 @@ interface ServiceWorkloadProps {
   canEdit: boolean;
 }
 
+const envToText = (env: Record<string, string> | undefined) =>
+  Object.entries(env ?? {})
+    .map(([name, value]) => `${name}=${value}`)
+    .join("\n");
+
+const textToEnv = (text: string): Record<string, string> =>
+  Object.fromEntries(
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.includes("="))
+      .map((line) => [
+        line.slice(0, line.indexOf("=")).trim(),
+        line.slice(line.indexOf("=") + 1),
+      ]),
+  );
+
+const initialStyle = (
+  saved: WorkloadSpec | null,
+  appChart: string | null,
+): "app" | "chart" => {
+  if (saved) return saved.app && !saved.chart ? "app" : "chart";
+  return appChart ? "app" : "chart";
+};
+
 const WorkloadDefinition = ({
   serviceId,
   serviceName,
   spec,
   canEdit,
 }: Omit<ServiceWorkloadProps, "repositoryUrl">) => {
-  const { ikApi } = useConfig();
+  const { ikApi, globalConfig } = useConfig();
+  const appChart: string | null = globalConfig?.workload_app_chart || null;
   const { refreshEntity } = useEntityProvider();
   const saved = spec?.workload ?? null;
   const [form, setForm] = useState<WorkloadSpec>(saved ?? EMPTY_WORKLOAD);
+  const [style, setStyle] = useState(initialStyle(saved, appChart));
+  const [app, setApp] = useState<AppSpec>(saved?.app ?? EMPTY_APP);
+  const [envText, setEnvText] = useState(envToText(saved?.app?.env));
   const [valuesText, setValuesText] = useState(
     (saved?.values_files ?? []).join("\n"),
   );
 
   useEffect(() => {
     setForm(saved ?? EMPTY_WORKLOAD);
+    setStyle(initialStyle(saved, appChart));
+    setApp(saved?.app ?? EMPTY_APP);
+    setEnvText(envToText(saved?.app?.env));
     setValuesText((saved?.values_files ?? []).join("\n"));
-  }, [saved]);
+  }, [saved, appChart]);
 
   const set = (patch: Partial<WorkloadSpec>) =>
     setForm((current) => ({ ...current, ...patch }));
+  const setAppField = (patch: Partial<AppSpec>) =>
+    setApp((current) => ({ ...current, ...patch }));
 
+  const useApp = style === "app";
   const next: WorkloadSpec = {
     ...form,
+    app: useApp
+      ? {
+          ...app,
+          image: app.image.trim(),
+          health_path: app.health_path || null,
+          env: textToEnv(envText),
+        }
+      : null,
+    chart: useApp ? null : (form.chart ?? "").trim() || null,
+    chart_version: useApp ? null : (form.chart_version ?? "").trim() || null,
     release_name: form.release_name || null,
     namespace: form.namespace || null,
     values_files: valuesText
@@ -115,7 +171,9 @@ const WorkloadDefinition = ({
       .filter(Boolean),
   };
   const dirty = JSON.stringify(next) !== JSON.stringify(saved);
-  const invalid = !next.chart.trim() || !next.chart_version.trim();
+  const invalid = useApp
+    ? !next.app?.image || (next.mode === "managed" && !appChart)
+    : !next.chart || !next.chart_version;
 
   const save = async (workload: WorkloadSpec | null) => {
     try {
@@ -153,6 +211,106 @@ const WorkloadDefinition = ({
           <ToggleButton value="external">External</ToggleButton>
           <ToggleButton value="managed">Managed</ToggleButton>
         </ToggleButtonGroup>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={style}
+            disabled={!canEdit}
+            onChange={(_, value) => value && setStyle(value)}
+          >
+            <ToggleButton value="app">Simple app</ToggleButton>
+            <ToggleButton value="chart">Custom chart</ToggleButton>
+          </ToggleButtonGroup>
+          <Typography variant="body2" color="text.secondary">
+            {useApp ? (
+              appChart ? (
+                <>
+                  Describe the service; the platform chart{" "}
+                  <InlineCode>{appChart}</InlineCode> runs it with probes,
+                  resource limits and a hardened security context.
+                </>
+              ) : (
+                "No platform app chart is configured (WORKLOAD_APP_CHART); a managed workload needs one, or a custom chart."
+              )
+            ) : (
+              "Bring your own Helm chart; its values come from the values files."
+            )}
+          </Typography>
+        </Box>
+        {useApp && (
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "2fr 1fr 1fr" },
+              gap: 2,
+            }}
+          >
+            <TextField
+              size="small"
+              label="Image"
+              required
+              placeholder="123456789012.dkr.ecr.eu-west-1.amazonaws.com/team/app"
+              helperText="Repository without tag; each deployed version is the tag"
+              value={app.image}
+              disabled={!canEdit}
+              onChange={(e) => setAppField({ image: e.target.value })}
+            />
+            <TextField
+              size="small"
+              type="number"
+              label="Port"
+              value={app.port}
+              disabled={!canEdit}
+              onChange={(e) => setAppField({ port: Number(e.target.value) })}
+            />
+            <TextField
+              size="small"
+              label="Health path"
+              helperText="Empty disables probes"
+              value={app.health_path ?? ""}
+              disabled={!canEdit}
+              onChange={(e) => setAppField({ health_path: e.target.value })}
+            />
+            <TextField
+              size="small"
+              label="Environment variables"
+              multiline
+              minRows={2}
+              placeholder={"LOG_LEVEL=info\nFEATURE_X=true"}
+              helperText="NAME=value per line; secrets come from bindings"
+              value={envText}
+              disabled={!canEdit}
+              onChange={(e) => setEnvText(e.target.value)}
+            />
+            <TextField
+              size="small"
+              type="number"
+              label="Replicas"
+              value={app.replicas}
+              disabled={!canEdit}
+              onChange={(e) =>
+                setAppField({ replicas: Number(e.target.value) })
+              }
+            />
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <TextField
+                size="small"
+                label="CPU"
+                value={app.cpu}
+                disabled={!canEdit}
+                onChange={(e) => setAppField({ cpu: e.target.value })}
+              />
+              <TextField
+                size="small"
+                label="Memory"
+                value={app.memory}
+                disabled={!canEdit}
+                onChange={(e) => setAppField({ memory: e.target.value })}
+              />
+            </Box>
+          </Box>
+        )}
         <Box
           sx={{
             display: "grid",
@@ -160,21 +318,25 @@ const WorkloadDefinition = ({
             gap: 2,
           }}
         >
-          <TextField
-            size="small"
-            label="Chart"
-            placeholder="oci://registry.example.com/charts/app"
-            value={form.chart}
-            disabled={!canEdit}
-            onChange={(e) => set({ chart: e.target.value })}
-          />
-          <TextField
-            size="small"
-            label="Chart version"
-            value={form.chart_version}
-            disabled={!canEdit}
-            onChange={(e) => set({ chart_version: e.target.value })}
-          />
+          {!useApp && (
+            <>
+              <TextField
+                size="small"
+                label="Chart"
+                placeholder="oci://registry.example.com/charts/app"
+                value={form.chart ?? ""}
+                disabled={!canEdit}
+                onChange={(e) => set({ chart: e.target.value })}
+              />
+              <TextField
+                size="small"
+                label="Chart version"
+                value={form.chart_version ?? ""}
+                disabled={!canEdit}
+                onChange={(e) => set({ chart_version: e.target.value })}
+              />
+            </>
+          )}
           <TextField
             size="small"
             label="Release name"
@@ -193,13 +355,15 @@ const WorkloadDefinition = ({
           />
           <TextField
             size="small"
-            label="Values files"
+            label={useApp ? "Values overrides (optional)" : "Values files"}
             multiline
-            minRows={3}
+            minRows={useApp ? 2 : 3}
             placeholder={
-              "helm-values/values.yaml\nhelm-values/{environment}/values.yaml\nhelm-values/{region}/values.yaml?"
+              useApp
+                ? "helm-values/{environment}.yaml?"
+                : "helm-values/values.yaml\nhelm-values/{environment}/values.yaml\nhelm-values/{region}/values.yaml?"
             }
-            helperText="One path per line, applied in order. Placeholders: {service_name} {environment} {region} {tier}; a trailing ? makes a file optional."
+            helperText={`${useApp ? "Repository files applied on top of the app settings. " : ""}One path per line, applied in order. Placeholders: {service_name} {environment} {region} {tier}; a trailing ? makes a file optional.`}
             value={valuesText}
             disabled={!canEdit}
             onChange={(e) => setValuesText(e.target.value)}

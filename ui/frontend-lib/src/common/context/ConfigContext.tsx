@@ -90,6 +90,7 @@ export const ConfigProvider = ({
             storageProviderRegistry
             secretProviderRegistry
             offeringRequestUrl
+            workloadAppChart
           }
           entities
           userApiPolicies
@@ -121,6 +122,7 @@ export const ConfigProvider = ({
         storage_provider_registry: gql.storageProviderRegistry,
         secret_provider_registry: gql.secretProviderRegistry,
         offering_request_url: gql.offeringRequestUrl,
+        workload_app_chart: gql.workloadAppChart,
         entities: response.entities,
       };
 

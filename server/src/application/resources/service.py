@@ -155,7 +155,8 @@ class ResourceService:
 
     async def get_actions(self, resource_id: str | UUID, requester: UserDTO) -> list[str]:
         resource = await self.crud.get_by_id(
-            resource_id, fields={"status": None, "state": None, "project": {"id": None, "owners": {"id": None}}}
+            resource_id,
+            fields={"status": None, "state": None, "abstract": None, "project": {"id": None, "owners": {"id": None}}},
         )
         if not resource:
             raise EntityNotFound("Resource not found")
@@ -167,6 +168,7 @@ class ResourceService:
             resource.state,
             resource_temp_state is not None,
             project=getattr(resource, "project", None),
+            abstract=bool(resource.abstract),
         )
 
     async def create_resource(
@@ -804,13 +806,21 @@ class ResourceService:
             pydantic_resource.id, requester.id, body.action, revision_number=pydantic_resource.revision_number
         )
 
+        if existing_resource.abstract and body.action in (
+            ModelActions.DRYRUN,
+            ModelActions.DRYRUN_WITH_TEMP_STATE,
+        ):
+            raise EntityWrongState("Abstract resources are not provisioned by InfraKitchen; there is nothing to plan")
+
         match body.action:
             case ModelActions.REJECT:
                 await self.action_reject(existing_resource, pydantic_resource, requester)
                 await self.publish_notification_event(existing_resource, "rejected")
 
             case ModelActions.RETRY:
-                if existing_resource.status == ModelStatus.QUEUED:
+                if existing_resource.status == ModelStatus.QUEUED and existing_resource.abstract:
+                    await approve_entity(existing_resource, abstract=True)
+                elif existing_resource.status == ModelStatus.QUEUED:
                     await self.event_sender.send_task(
                         existing_resource.id,
                         requester=requester,
@@ -830,12 +840,16 @@ class ResourceService:
                 await self.publish_notification_event(existing_resource, "destroy")
             case ModelActions.EXECUTE:
                 await execute_entity(existing_resource)
-                await self.event_sender.send_task(
-                    pydantic_resource.id,
-                    requester=requester,
-                    trace_id=trace_id or self.audit_log_handler.trace_id,
-                    audit_log_id=self.audit_log_handler.audit_log_id,
-                )
+                if existing_resource.abstract:
+                    # Only InfraKitchen's record changes; the real resource is never applied or destroyed.
+                    await approve_entity(existing_resource, abstract=True)
+                else:
+                    await self.event_sender.send_task(
+                        pydantic_resource.id,
+                        requester=requester,
+                        trace_id=trace_id or self.audit_log_handler.trace_id,
+                        audit_log_id=self.audit_log_handler.audit_log_id,
+                    )
             case ModelActions.DRYRUN:
                 if existing_resource.status not in [
                     ModelStatus.READY,

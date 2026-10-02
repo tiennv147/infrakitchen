@@ -102,3 +102,18 @@ class ServicePlanType:
             no_ops=plan.count(PlanAction.NO_OP),
             destroys=plan.count(PlanAction.DESTROY),
         )
+
+
+@strawberry.type
+class ServiceGraphNodeType:
+    """Same fields as ResourceTreeNodeType, plus the node's entity and how it relates to its parent."""
+
+    id: uuid.UUID
+    node_id: str
+    name: str
+    entity_name: str
+    relation: str
+    state: str
+    status: str
+    template_name: str
+    children: list["ServiceGraphNodeType"]

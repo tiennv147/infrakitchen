@@ -13,6 +13,6 @@
   },
   {
     "name": "Services",
-    "enabled": false
+    "enabled": true
   }
 ]

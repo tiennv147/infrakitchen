@@ -27,7 +27,7 @@ const FEATURE_FLAG_DESCRIPTIONS: Record<string, string> = {
     "When enabled, the Services catalog appears in the sidebar and on project pages.",
 };
 
-const EXPERIMENTAL_FEATURE_FLAGS = new Set(["Services"]);
+const EXPERIMENTAL_FEATURE_FLAGS = new Set<string>();
 
 export const FeatureFlagSection = () => {
   const { ikApi } = useConfig();

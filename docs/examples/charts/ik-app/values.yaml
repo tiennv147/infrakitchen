@@ -1,0 +1,26 @@
+# Values contract of InfraKitchen's `workload.app`; InfraKitchen sets image.repository, port, replicas,
+# resources, env and health, and image.tag to the deployed version. Values files of the service may override any key.
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+port: 8080
+replicas: 2
+
+resources:
+  cpu: 100m
+  memory: 128Mi
+
+env: {}
+
+# Set path to an empty value to disable the probes.
+health:
+  path: ""
+
+service:
+  port: 80
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []

@@ -52,11 +52,16 @@ function buildGraph(
     levels[depth].push(node);
 
     if (parentId) {
+      const referenced = node.relation === "referenced";
       edges.push({
         id: `${parentId}->${node.nodeId}`,
         source: parentId,
         target: node.nodeId,
         type: "default",
+        ...(referenced && {
+          label: "referenced",
+          style: { strokeDasharray: "6 4" },
+        }),
       });
     }
 
@@ -76,7 +81,7 @@ function buildGraph(
           y: index * NODE_HEIGHT - columnHeight / 2,
         },
         data: {
-          entity_name,
+          entity_name: node.entityName ?? entity_name,
           entity_id: node.id,
           item: node,
           isRoot: depth === 0,
@@ -92,11 +97,14 @@ function buildGraph(
 export interface GraphViewProps {
   entity_name: string;
   entity_id: string;
+  /** Replaces the default children-tree query, e.g. for service topology. */
+  loadTree?: () => Promise<TreeResponse>;
 }
 
 export const EntityGraphViewTab = ({
   entity_id,
   entity_name,
+  loadTree,
 }: GraphViewProps) => {
   const { ikApi } = useConfig();
   const { mode } = useColorScheme();
@@ -104,8 +112,11 @@ export const EntityGraphViewTab = ({
   const [fullscreen, setFullscreen] = useState(false);
 
   useEffect(() => {
-    fetchEntityTree(ikApi, entity_name, entity_id, "children").then(setTree);
-  }, [entity_id, entity_name, ikApi]);
+    (loadTree
+      ? loadTree()
+      : fetchEntityTree(ikApi, entity_name, entity_id, "children")
+    ).then(setTree);
+  }, [entity_id, entity_name, ikApi, loadTree]);
 
   const { nodes: computedNodes, edges } = useMemo(
     () => (tree ? buildGraph(tree, entity_name) : { nodes: [], edges: [] }),

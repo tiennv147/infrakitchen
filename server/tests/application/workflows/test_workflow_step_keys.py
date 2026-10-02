@@ -27,19 +27,22 @@ def _step(
     parent_step_keys: list[str] | None = None,
     storage_path: str | None = None,
     workspace_id: UUID | None = None,
+    source_code_version_id: UUID | None = None,
+    resolved_variables: dict | None = None,
 ) -> WorkflowStep:
     return WorkflowStep(
         id=uuid4(),
         workflow_id=uuid4(),
         template_id=template_id,
         resource_id=resource_id,
+        source_code_version_id=source_code_version_id,
         parent_resource_ids=[],
         integration_ids=[],
         secret_ids=[],
         storage_id=None,
         position=0,
         status=status,
-        resolved_variables={},
+        resolved_variables=resolved_variables or {},
         step_key=step_key,
         parent_step_keys=parent_step_keys or [],
         storage_path=storage_path,
@@ -209,6 +212,36 @@ class TestManageResourceKeyedSteps:
         created = task.resource_service.create.await_args.kwargs["resource"]
         assert created.storage_path == "service-catalog/aws_redis/redis/terraform.tfstate"
         assert created.workspace_id is None
+
+    @pytest.mark.asyncio
+    async def test_unset_optional_variables_take_the_version_default(self):
+        step = _step(uuid4(), source_code_version_id=uuid4(), resolved_variables={"name": "app"})
+        task = self._prepared(step, [step])
+
+        def var(name: str, value, **flags):
+            return SimpleNamespace(
+                name=name,
+                value=value,
+                required=flags.get("required", False),
+                sensitive=flags.get("sensitive", False),
+                restricted=flags.get("restricted", False),
+            )
+
+        task.resource_service.get_variable_schema = AsyncMock(
+            return_value=[
+                var("name", "default-name", required=True),
+                var("tags", {}),
+                var("timeout", 300),
+                var("region", None, required=True),
+                var("password", None, sensitive=True),
+                var("owner", "platform", restricted=True),
+            ]
+        )
+
+        await task.manage_resource(step)
+
+        created = task.resource_service.create.await_args.kwargs["resource"]
+        assert {v.name: v.value for v in created.variables} == {"name": "app", "tags": {}, "timeout": 300}
 
 
 class TestTopologicalLevels:
