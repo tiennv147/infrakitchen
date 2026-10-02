@@ -13,10 +13,21 @@ export interface BindingSpec {
   scope: "runtime" | "build";
 }
 
+export interface AppSpec {
+  image: string;
+  port: number;
+  health_path: string | null;
+  replicas: number;
+  cpu: string;
+  memory: string;
+  env: Record<string, string>;
+}
+
 export interface WorkloadSpec {
   mode: "external" | "managed";
-  chart: string;
-  chart_version: string;
+  app?: AppSpec | null;
+  chart: string | null;
+  chart_version: string | null;
   release_name: string | null;
   namespace: string | null;
   values_files: string[];

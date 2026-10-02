@@ -26,10 +26,16 @@ class GlobalConfigType:
     storage_provider_registry: list[str]
     secret_provider_registry: list[str]
     offering_request_url: str | None
+    workload_app_chart: str | None
 
 
 def _http_url_or_none(url: str) -> str | None:
     return url if urlparse(url).scheme in ("http", "https") else None
+
+
+def _app_chart(settings: Settings) -> str | None:
+    chart, version = settings.WORKLOAD_APP_CHART.strip(), settings.WORKLOAD_APP_CHART_VERSION.strip()
+    return f"{chart}:{version}" if chart and version else None
 
 
 @strawberry.type
@@ -145,6 +151,7 @@ class ConfigQuery:
             storage_provider_registry=list(StorageProviderAdapter.adapters.keys()),
             secret_provider_registry=list(SecretProviderAdapter.adapters.keys()),
             offering_request_url=_http_url_or_none(Settings().OFFERING_REQUEST_URL),
+            workload_app_chart=_app_chart(Settings()),
         )
 
     @strawberry.field(permission_classes=[IsAuthenticated])

@@ -47,8 +47,15 @@ To let InfraKitchen deploy applications:
 
 1. Import `docs/examples/templates/helm-workload` as the `helm_workload` template. It wraps `helm_release` with
    `atomic`, `wait`, `timeout` and `cleanup_on_fail`, so a failed rollout rolls back like `helm upgrade --atomic`.
+   Charts in a private ECR registry (`oci://<account>.dkr.ecr.<region>.amazonaws.com/...`) in the cluster's region
+   are pulled with the environment's AWS integration; no registry login is needed on the worker.
 2. Set each environment's **cluster name** and **region**.
-3. If CI should deploy with GitHub OIDC, add a `github_oidc` auth provider (Administration → Auth Providers) with the
+3. Publish the platform app chart so services can describe their workload with `app` instead of a chart. Package
+   `docs/examples/charts/ik-app` (or your own chart with the same values contract), push it to an OCI registry the
+   worker can pull from, and set `WORKLOAD_APP_CHART` (e.g. `oci://<registry>/charts/ik-app`) and
+   `WORKLOAD_APP_CHART_VERSION` on the server. Upgrading the version rolls the change out with each service's next
+   deploy.
+4. If CI should deploy with GitHub OIDC, add a `github_oidc` auth provider (Administration → Auth Providers) with the
    audience your workflows request and the GitHub organizations allowed to sign in.
 
 ## Checklist
@@ -58,3 +65,4 @@ To let InfraKitchen deploy applications:
 - [ ] A test service plans cleanly in every tier
 - [ ] The worker can write the binding sink
 - [ ] (Managed workloads) `helm_workload` is imported and environments have a cluster name
+- [ ] (Managed workloads) `WORKLOAD_APP_CHART` and `WORKLOAD_APP_CHART_VERSION` point at the published app chart

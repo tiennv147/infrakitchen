@@ -1,9 +1,11 @@
+import json
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
 from application.services.compiler import (
+    APP_VALUES_HEADER,
     Catalog,
     CatalogTemplate,
     CatalogVersion,
@@ -14,7 +16,7 @@ from application.services.compiler import (
     compile_workload,
     validate_spec_against_catalog,
 )
-from application.services.schema import ServiceSpec, WorkloadSpec, validate_image_tag
+from application.services.schema import AppSpec, ServiceSpec, WorkloadSpec, validate_image_tag
 from core.constants.model import ModelStatus
 
 SERVICE_ID = uuid4()
@@ -52,12 +54,14 @@ def _workload(**overrides) -> WorkloadSpec:
     return WorkloadSpec.model_validate(values)
 
 
-def _compile(workload: WorkloadSpec, *, owned=(), version="1.2.3", values=None, commit=None, environment=ENV):
+def _compile(
+    workload: WorkloadSpec, *, owned=(), version="1.2.3", values=None, commit=None, environment=ENV, catalog=CATALOG
+):
     return compile_workload(
         service_id=SERVICE_ID,
         service_name="checkout",
         workload=workload,
-        catalog=CATALOG,
+        catalog=catalog,
         environment=environment,
         owned=list(owned),
         created_by=USER_ID,
@@ -238,3 +242,112 @@ class TestClaimsLeaveTheWorkloadAlone:
         )
         assert compiled.plan.errors == []
         assert all(item.action != PlanAction.DESTROY for item in compiled.plan.items)
+
+
+IMAGE = "123456789012.dkr.ecr.eu-west-1.amazonaws.com/shop/checkout"
+APP_CATALOG = Catalog(
+    templates_by_key={HELM.key: HELM},
+    latest_version_by_template=CATALOG.latest_version_by_template,
+    app_chart="oci://registry.example.com/charts/ik-app",
+    app_chart_version="0.1.0",
+)
+
+
+def _app_workload(**app) -> WorkloadSpec:
+    return WorkloadSpec.model_validate({"mode": "managed", "app": {"image": IMAGE, **app}})
+
+
+def _app_values(document: str) -> dict:
+    assert document.startswith(APP_VALUES_HEADER)
+    return json.loads(document.removeprefix(APP_VALUES_HEADER))
+
+
+class TestAppSpec:
+    def test_defaults(self):
+        app = AppSpec(image=IMAGE)
+        assert (app.port, app.health_path, app.replicas, app.cpu, app.memory) == (8080, "/health", 2, "100m", "128Mi")
+
+    def test_chart_values_are_the_platform_chart_contract(self):
+        app = AppSpec(image=IMAGE, port=9090, health_path="/ready", replicas=3, env={"B": "2", "A": "1"})
+        assert app.chart_values() == {
+            "image": {"repository": IMAGE},
+            "port": 9090,
+            "replicas": 3,
+            "resources": {"cpu": "100m", "memory": "128Mi"},
+            "env": {"A": "1", "B": "2"},
+            "health": {"path": "/ready"},
+        }
+
+    def test_health_checks_can_be_turned_off(self):
+        assert "health" not in AppSpec(image=IMAGE, health_path="").chart_values()
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("image", f"{IMAGE}:1.0.0"),
+            ("image", "Registry/App"),
+            ("health_path", "health"),
+            ("cpu", "1 core"),
+            ("memory", "128MB"),
+            ("env", {"1BAD": "x"}),
+            ("port", 0),
+        ],
+    )
+    def test_invalid_values(self, field, value):
+        with pytest.raises(ValidationError):
+            AppSpec.model_validate({"image": IMAGE, field: value})
+
+    def test_a_workload_needs_an_app_or_a_chart(self):
+        with pytest.raises(ValidationError, match="'app'"):
+            WorkloadSpec.model_validate({"mode": "managed"})
+        with pytest.raises(ValidationError, match="together"):
+            WorkloadSpec.model_validate({"app": {"image": IMAGE}, "chart": "oci://x/y"})
+
+
+class TestAppWorkload:
+    def test_platform_chart_and_generated_values_are_used(self):
+        compiled = _compile(_app_workload(port=9090), values=[], catalog=APP_CATALOG)
+        assert compiled.plan.errors == [] and compiled.workflow is not None
+        variables = compiled.workflow.steps[0].resolved_variables
+        assert (variables["chart"], variables["chart_version"]) == ("oci://registry.example.com/charts/ik-app", "0.1.0")
+        (document,) = variables["values"]
+        assert _app_values(document)["port"] == 9090
+
+    def test_values_files_override_the_generated_values(self):
+        compiled = _compile(_app_workload(), values=["replicas: 5"], catalog=APP_CATALOG)
+        values = compiled.workflow.steps[0].resolved_variables["values"] if compiled.workflow else []
+        assert values[0].startswith(APP_VALUES_HEADER) and values[1:] == ["replicas: 5"]
+
+    def test_own_chart_wins_over_the_platform_chart(self):
+        workload = WorkloadSpec.model_validate(
+            {"mode": "managed", "app": {"image": IMAGE}, "chart": "oci://other/charts/app", "chart_version": "2.0.0"}
+        )
+        compiled = _compile(workload, values=[], catalog=APP_CATALOG)
+        assert compiled.workflow is not None
+        variables = compiled.workflow.steps[0].resolved_variables
+        assert (variables["chart"], variables["chart_version"]) == ("oci://other/charts/app", "2.0.0")
+
+    def test_without_a_platform_chart_it_is_an_error(self):
+        compiled = _compile(_app_workload(), values=[])
+        assert compiled.workflow is None
+        assert compiled.plan.errors and "WORKLOAD_APP_CHART" in compiled.plan.errors[0]
+        errors = validate_spec_against_catalog(ServiceSpec(workload=_app_workload()), CATALOG)
+        assert errors and "WORKLOAD_APP_CHART" in errors[0]
+
+    def test_changing_the_app_updates_only_the_generated_document(self):
+        applied = _compile(_app_workload(), values=["replicas: 5"], commit="abc", catalog=APP_CATALOG).workflow
+        assert applied is not None
+        existing = _existing(applied.steps[0].resolved_variables)
+        compiled = _compile(_app_workload(port=9090), owned=[existing], values=None, catalog=APP_CATALOG)
+        (item,) = compiled.plan.items
+        assert item.action == PlanAction.UPDATE and [c.field for c in item.changes] == ["values"]
+        values = compiled.workflow.steps[0].resolved_variables["values"] if compiled.workflow else []
+        assert _app_values(values[0])["port"] == 9090 and values[1:] == ["replicas: 5"]
+
+    def test_unchanged_app_is_a_no_op(self):
+        applied = _compile(_app_workload(), values=[], catalog=APP_CATALOG).workflow
+        assert applied is not None
+        existing = _existing(applied.steps[0].resolved_variables)
+        assert _compile(_app_workload(), owned=[existing], values=[], catalog=APP_CATALOG).plan.items[0].action == (
+            PlanAction.NO_OP
+        )

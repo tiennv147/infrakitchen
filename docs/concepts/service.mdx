@@ -39,9 +39,7 @@ graph LR
   ],
   "workload": {
     "mode": "managed",
-    "chart": "oci://registry.example.com/charts/app",
-    "chart_version": "1.4.0",
-    "values_files": ["helm-values/values.yaml", "helm-values/{environment}/values.yaml?"]
+    "app": {"image": "123456789012.dkr.ecr.eu-west-1.amazonaws.com/shop/checkout", "port": 8080}
   }
 }
 ```
@@ -55,6 +53,23 @@ graph LR
 - **Workload** is the Helm release. In `external` mode it is only recorded and the service's own pipeline deploys
   it. In `managed` mode InfraKitchen applies it after the claims and bindings, so the application never starts
   before its credentials exist.
+
+## Describing the workload
+
+Most services only need `app`: the platform app chart supplies the Deployment, Service, probes, resource limits,
+a hardened security context and a disruption budget. No chart, values files or repository access are needed.
+
+| `app` field | Default | Meaning |
+|---|---|---|
+| `image` | required | Image repository without tag; each deployed version becomes the tag |
+| `port` | `8080` | Port the container listens on (also passed as `PORT`) |
+| `health_path` | `/health` | HTTP path for readiness and liveness probes; empty disables them |
+| `replicas` | `2` | Pod count |
+| `cpu`, `memory` | `100m`, `128Mi` | CPU request; memory request and limit |
+| `env` | `{}` | Plain environment variables; secrets come from bindings |
+
+`values_files` still apply on top of `app`, for the occasional setting the app fields do not cover. A service that
+needs its own chart sets `chart` and `chart_version` instead; values then come only from its values files.
 
 ## Deploying and reconciling
 

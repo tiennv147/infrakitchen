@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     MCP_ENABLED: bool = False
     # Where developers request a new offering for the service catalog, e.g. an intake form.
     OFFERING_REQUEST_URL: str = ""
+    # Platform chart that runs workloads described with `app`, e.g. oci://registry/charts/ik-app.
+    WORKLOAD_APP_CHART: str = ""
+    WORKLOAD_APP_CHART_VERSION: str = ""
 
     class ConfigDict:
         env_file = ".env"

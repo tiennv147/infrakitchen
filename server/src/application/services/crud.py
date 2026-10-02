@@ -11,6 +11,7 @@ from application.service_instances.model import ServiceInstance, ServiceInstance
 from application.source_code_versions.model import SourceCodeVersion
 from application.templates.model import Template
 from core.constants.model import ModelStatus, VersionLifecycleState
+from core.config import Settings
 from core.database import (
     FieldSpec,
     evaluate_sqlalchemy_filters,
@@ -122,12 +123,15 @@ class ServiceCRUD:
         await self.session.refresh(service)
 
     async def load_catalog(self, spec: ServiceSpec) -> Catalog:
+        settings = Settings()
+        app_chart = settings.WORKLOAD_APP_CHART.strip() or None
+        app_chart_version = settings.WORKLOAD_APP_CHART_VERSION.strip() or None
         keys = {claim.template for claim in spec.claims}
         workload = spec.managed_workload
         if workload is not None:
             keys.add(workload.template)
         if not keys:
-            return Catalog(templates_by_key={})
+            return Catalog(templates_by_key={}, app_chart=app_chart, app_chart_version=app_chart_version)
         templates = list(
             (
                 await self.session.execute(
@@ -189,6 +193,8 @@ class ServiceCRUD:
             latest_version_by_template=latest,
             template_key_by_id={p.id: p.template for t in templates for p in t.parents}
             | {t.id: t.template for t in templates},
+            app_chart=app_chart,
+            app_chart_version=app_chart_version,
         )
 
     async def load_environment_target(self, environment_id: UUID | str) -> EnvironmentTarget | None:
