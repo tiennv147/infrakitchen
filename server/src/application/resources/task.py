@@ -95,6 +95,9 @@ class ResourceTask:
 
         self.logger.info(f"Running on worker: {os.uname().nodename}")
 
+        if self.resource_instance.abstract:
+            raise CannotProceed("Abstract resources are tracked, not provisioned; refusing to run OpenTofu")
+
         match self.action:
             case ModelActions.EXECUTE:
                 self.logger.info(f"Starting pipeline with action {self.action}")

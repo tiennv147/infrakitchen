@@ -42,6 +42,7 @@ async def get_resource_actions(
     state: ModelState,
     temp_state_exists: bool,
     project: Project | None = None,
+    abstract: bool = False,
 ) -> list[str]:
     """
     Get all actions available for the resource.
@@ -131,6 +132,11 @@ async def get_resource_actions(
             actions.append(ModelActions.DOWNLOAD)
             actions.append(ModelActions.EXECUTE)
             actions.append(ModelActions.DRYRUN)
+
+    if abstract:
+        # Tracked, not provisioned: nothing to plan, and cascade destroy would hand it to OpenTofu.
+        unsupported = {ModelActions.DRYRUN, ModelActions.CASCADE_DESTROY, "dryrun_with_temp_state"}
+        actions = [action for action in actions if action not in unsupported]
 
     return actions
 
