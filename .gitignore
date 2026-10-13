@@ -6,6 +6,8 @@ erl_crash.dump
 .claude/
 .opencode/
 server/build-info.json
+server/coverage.xml
+coverage/
 node_modules/
 .blume/
 dist/
