@@ -1,0 +1,166 @@
+name: Publish
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)publish, e.g. v0.7.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  meta:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "::error::Invalid release tag '$TAG'"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          if [[ "$TAG" == *-rc.* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  image:
+    name: Publish container image
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+
+      - name: Check VERSION file
+        id: source
+        run: |
+          file_version=$(tr -d '[:space:]' < VERSION)
+          [[ "$file_version" == "$VERSION" ]] || { echo "::error::VERSION file is $file_version, tag is v$VERSION"; exit 1; }
+          echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          # Pre-releases get only the full version tag; `latest` follows stable releases.
+          flavor: latest=auto
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.meta.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.meta.outputs.tag }}
+            type=raw,value=sha-${{ steps.source.outputs.sha_short }}
+          labels: |
+            org.opencontainers.image.title=InfraKitchen
+            org.opencontainers.image.version=${{ needs.meta.outputs.version }}
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docs/examples/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summary
+        run: |
+          echo "Published \`$IMAGE\` with tags:" >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.meta.outputs.tags }}' | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+
+  npm:
+    name: Publish npm package
+    needs: meta
+    # Forks must never publish the @electrolux-oss package.
+    if: ${{ github.repository_owner == 'electrolux-oss' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      DIST_TAG: ${{ needs.meta.outputs.prerelease == 'true' && 'rc' || 'latest' }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+          registry-url: https://registry.npmjs.org/
+
+      - name: Check package version
+        id: check
+        working-directory: ui/frontend-lib
+        run: |
+          pkg_version=$(node -p "require('./package.json').version")
+          [[ "$pkg_version" == "$VERSION" ]] || { echo "::error::package.json is $pkg_version, tag is v$VERSION"; exit 1; }
+          if npm view "@electrolux-oss/infrakitchen@$VERSION" version >/dev/null 2>&1; then
+            echo "Version $VERSION is already published, skipping"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        if: steps.check.outputs.published != 'true'
+        working-directory: ui
+        run: |
+          yarn install --immutable
+          yarn workspace @electrolux-oss/infrakitchen build
+
+      - name: Publish
+        if: steps.check.outputs.published != 'true'
+        working-directory: ui/frontend-lib
+        run: npm publish --provenance --access public --tag "$DIST_TAG" --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

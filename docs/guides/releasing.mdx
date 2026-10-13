@@ -1,0 +1,127 @@
+---
+title: Releasing
+description: How InfraKitchen is tested, versioned and released.
+---
+
+InfraKitchen follows [semantic versioning](https://semver.org/). While the major version is `0`, a **minor** bump (`0.7.0`) carries new features and may include breaking changes; a **patch** bump (`0.7.1`) contains fixes only. Release candidates use the `X.Y.Z-rc.N` form.
+
+The [`VERSION`](https://github.com/electrolux-oss/infrakitchen/blob/main/VERSION) file is the single source of truth. `ui/frontend-lib/package.json` must always carry the same version; CI fails when they drift.
+
+## What a Release Publishes
+
+| Artifact | Location | Tags |
+| --- | --- | --- |
+| GitHub Release | [Releases](https://github.com/electrolux-oss/infrakitchen/releases) | `vX.Y.Z` |
+| Container image | `ghcr.io/electrolux-oss/infrakitchen` (`linux/amd64`, `linux/arm64`) | `X.Y.Z`, `X.Y`, `latest`, `sha-<commit>` |
+| Frontend library | [`@electrolux-oss/infrakitchen`](https://www.npmjs.com/package/@electrolux-oss/infrakitchen) | `latest` |
+
+Release candidates publish only the `X.Y.Z-rc.N` image tag and the `rc` npm dist-tag, so `latest` keeps pointing at the last stable release. Images ship with SBOM and build provenance attestations; the npm package is published with provenance.
+
+## Tests
+
+| Check | Command | When it runs |
+| --- | --- | --- |
+| Python types, lint, formatting | `./scripts/check_python_types.sh`, `./scripts/check_ruff_formatting.sh` | PRs touching `server/`, every push to `main` |
+| Python unit tests (with coverage) | `./scripts/run_python_tests.sh` | PRs touching `server/`, every push to `main` |
+| Database migrations | `./scripts/check_migrations.sh` (needs an empty PostgreSQL database configured via `POSTGRES_*`) | PRs touching models or migrations, every push to `main` |
+| UI lint and type check | `./scripts/check_typescript.sh` | PRs touching `ui/`, every push to `main` |
+| UI unit tests (Vitest) | `./scripts/run_ui_tests.sh` | PRs touching `ui/`, every push to `main` |
+| Image build and smoke test | `./scripts/smoke_image.sh <image>` | PRs touching the app or Dockerfile, every push to `main` |
+| End-to-end tests (Playwright) | see below | Every push to `main`, nightly, PRs labeled `run-e2e`, every release |
+
+The migration check verifies there is a single Alembic head, runs `upgrade head`, `downgrade -1`, `upgrade head` again, and finally `alembic check` to catch model changes without a migration.
+
+The `CI OK` job aggregates all CI jobs and is the one status check to require on `main`.
+
+### Running the End-to-End Tests Locally
+
+<Steps>
+
+<Step title="Build the image">
+
+```bash
+docker build -f docs/examples/docker/Dockerfile -t infrakitchen:local .
+```
+
+</Step>
+
+<Step title="Start the stack">
+
+```bash
+cd e2e
+docker compose up -d --wait
+```
+
+</Step>
+
+<Step title="Run Playwright">
+
+```bash
+npm ci
+npx playwright install chromium
+npx playwright test
+```
+
+Set `E2E_BASE_URL` to run against another instance, for example a local dev server on `http://localhost:7777`.
+
+</Step>
+
+</Steps>
+
+## Release Notes
+
+Release notes are generated from merged pull requests and grouped by label (see [`.github/release.yml`](https://github.com/electrolux-oss/infrakitchen/blob/main/.github/release.yml)):
+
+| Label | Section |
+| --- | --- |
+| `feature`, `enhancement` | ✨ New Features |
+| `ui` | 📈 UI/UX Enhancements |
+| `bug` | 🐛 Bug Fixes & Stability Improvements |
+| `maintenance`, `dependencies`, `performance` | ⚙️ Performance & Maintenance |
+| `documentation` | 📚 Documentation |
+| `skip-changelog` | excluded |
+
+Label pull requests before merging so the generated notes need little editing. Call out database migrations and any manual upgrade steps explicitly in the notes.
+
+## Release Steps
+
+<Steps>
+
+<Step title="Prepare the release">
+
+Run the **Prepare Release** workflow with the new version (for example `0.7.0`, without the `v`). It bumps `VERSION` and `ui/frontend-lib/package.json` and opens a `release/vX.Y.Z` pull request with a preview of the release notes.
+
+Locally, the same bump is `./scripts/bump_version.sh 0.7.0`.
+
+</Step>
+
+<Step title="Merge the release pull request">
+
+Review and merge it once CI is green.
+
+</Step>
+
+<Step title="Create the draft release">
+
+Run the **Release** workflow from `main` with the same version. It checks the version, runs the full CI and E2E suites against `main`, and creates a **draft** GitHub release with generated notes.
+
+</Step>
+
+<Step title="Publish">
+
+Edit the draft notes and publish the release. Publishing creates the `vX.Y.Z` tag and triggers the **Publish** workflow, which pushes the container image and the npm package. If publishing fails part-way, re-run **Publish** manually with the tag; both jobs are safe to repeat.
+
+</Step>
+
+</Steps>
+
+Releases are immutable once published. To fix a bad release, ship a new patch version instead of editing or re-tagging the old one.
+
+### Repository Setup
+
+Maintainers need to configure the following once:
+
+- Allow GitHub Actions to create pull requests (**Settings → Actions → General**). Pull requests opened with the default token do not trigger CI; add a `RELEASE_PR_TOKEN` secret (a fine-grained token with contents and pull-request write access) to get checks on release pull requests.
+- An `NPM_TOKEN` secret with publish access to `@electrolux-oss/infrakitchen`.
+- Allow the repository to publish public packages to GHCR, and make the `infrakitchen` package public after the first push.
+- Require the `CI OK` status check on `main`, and create the labels listed above plus `run-e2e`.

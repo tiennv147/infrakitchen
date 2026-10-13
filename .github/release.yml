@@ -1,0 +1,29 @@
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+    authors:
+      - dependabot
+      - github-actions
+  categories:
+    - title: "✨ New Features"
+      labels:
+        - feature
+        - enhancement
+    - title: "📈 UI/UX Enhancements"
+      labels:
+        - ui
+    - title: "🐛 Bug Fixes & Stability Improvements"
+      labels:
+        - bug
+    - title: "⚙️ Performance & Maintenance"
+      labels:
+        - maintenance
+        - dependencies
+        - performance
+    - title: "📚 Documentation"
+      labels:
+        - documentation
+    - title: "Other Changes"
+      labels:
+        - "*"
