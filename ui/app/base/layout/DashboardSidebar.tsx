@@ -103,6 +103,9 @@ export default function DashboardSidebar({
   // to mini while the drawer slides out made items jump around.
   const isPhoneViewport = !isOverSmViewport;
   const mini = !disableCollapsibleSidebar && !expanded && !isPhoneViewport;
+  // An open modal drawer marks the rest of the app aria-hidden, even when CSS hides the drawer.
+  const isTemporaryDrawerViewport =
+    isPhoneViewport || (disableCollapsibleSidebar && !isOverMdViewport);
 
   const handleSetSidebarExpanded = React.useCallback(
     (newExpanded: boolean) => () => {
@@ -492,7 +495,7 @@ export default function DashboardSidebar({
       <Drawer
         container={container}
         variant="temporary"
-        open={expanded}
+        open={expanded && isTemporaryDrawerViewport}
         onClose={handleSetSidebarExpanded(false)}
         ModalProps={{
           keepMounted: true, // Better open performance on mobile.
