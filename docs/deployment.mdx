@@ -19,7 +19,15 @@ To successfully deploy InfraKitchen, ensure that your system meets the following
 
 ## Docker Image
 
-InfraKitchen provides a multi-stage Dockerfile that builds the backend (Python + OpenTofu/Terraform + AWS CLI) and the frontend (Node.js), and serves the UI through the bundled Nginx.
+Every release publishes a multi-arch (`linux/amd64`, `linux/arm64`) image to the GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/electrolux-oss/infrakitchen:<version>
+```
+
+See [Releasing](/guides/releasing) for the available tags.
+
+To build your own image, InfraKitchen provides a multi-stage Dockerfile that builds the backend (Python + OpenTofu/Terraform + AWS CLI) and the frontend (Node.js), and serves the UI through the bundled Nginx.
 
 The example file also references the Nginx configs and entrypoint script shipped in the same directory:
 

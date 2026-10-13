@@ -1,0 +1,256 @@
+name: CI
+on:
+  workflow_dispatch:
+  workflow_call:
+
+  pull_request:
+    branches:
+      - "main"
+
+  push:
+    branches:
+      - "main"
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    # Path filtering only applies to PRs; every other trigger runs all jobs.
+    outputs:
+      backend: ${{ github.event_name != 'pull_request' || steps.filter.outputs.backend == 'true' }}
+      migrations: ${{ github.event_name != 'pull_request' || steps.filter.outputs.migrations == 'true' }}
+      frontend: ${{ github.event_name != 'pull_request' || steps.filter.outputs.frontend == 'true' }}
+      image: ${{ github.event_name != 'pull_request' || steps.filter.outputs.image == 'true' }}
+      docs: ${{ github.event_name != 'pull_request' || steps.filter.outputs.docs == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            workflow: &workflow
+              - .github/workflows/ci.yaml
+            backend:
+              - *workflow
+              - server/**
+              - VERSION
+              - scripts/check_python_types.sh
+              - scripts/check_ruff_formatting.sh
+              - scripts/run_python_tests.sh
+            migrations:
+              - *workflow
+              - server/src/alembic/**
+              - server/src/**/model.py
+              - server/src/**/models.py
+              - server/src/core/models/**
+              - server/uv.lock
+              - scripts/check_migrations.sh
+            frontend:
+              - *workflow
+              - ui/**
+              - VERSION
+              - scripts/check_typescript.sh
+              - scripts/run_ui_tests.sh
+            image:
+              - *workflow
+              - server/**
+              - ui/**
+              - VERSION
+              - .dockerignore
+              - docs/examples/docker/**
+              - scripts/smoke_image.sh
+            docs:
+              - docs/**
+              - package.json
+              - package-lock.json
+              - blume.config.ts
+
+  version-sync:
+    name: Check version sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - run: ./scripts/check_version_sync.sh
+
+  lint-python:
+    name: Lint and test Python code
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          working-directory: server
+
+      - name: Run python-linter
+        run: |
+          ./scripts/check_python_types.sh
+          echo "check formatting"
+          ./scripts/check_ruff_formatting.sh
+
+      - name: Run python-tests
+        run: |
+          ./scripts/run_python_tests.sh --cov --cov-report=xml --cov-report=term-missing:skip-covered
+
+      - name: Coverage summary
+        if: always()
+        working-directory: server
+        run: |
+          if [ -f .coverage ]; then
+            uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: python-coverage
+          path: server/coverage.xml
+          if-no-files-found: ignore
+
+  migrations:
+    name: Check database migrations
+    if: ${{ needs.changes.outputs.migrations == 'true' }}
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: infrakitchen
+          POSTGRES_PASSWORD: infrakitchen
+          POSTGRES_DB: infrakitchen
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U infrakitchen"
+          --health-interval 2s
+          --health-retries 30
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: infrakitchen
+      POSTGRES_PASSWORD: infrakitchen
+      POSTGRES_DB: infrakitchen
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          working-directory: server
+
+      - name: Check migrations
+        run: ./scripts/check_migrations.sh
+
+  lint-ui:
+    name: Lint and test UI code
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - name: Run ESLint
+        run: ./scripts/check_typescript.sh
+
+      - name: Run unit tests
+        run: ./scripts/run_ui_tests.sh
+
+  image:
+    name: Build and smoke test image
+    if: ${{ needs.changes.outputs.image == 'true' }}
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: infrakitchen
+          POSTGRES_PASSWORD: infrakitchen
+          POSTGRES_DB: infrakitchen
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U infrakitchen"
+          --health-interval 2s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docs/examples/docker/Dockerfile
+          tags: infrakitchen:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test image
+        env:
+          POSTGRES_USER: infrakitchen
+          POSTGRES_PASSWORD: infrakitchen
+          POSTGRES_DB: infrakitchen
+        run: ./scripts/smoke_image.sh infrakitchen:ci
+
+  lint-docs:
+    name: Validate and build docs
+    if: ${{ needs.changes.outputs.docs == 'true' }}
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: use node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate docs
+        run: npm run validate
+
+      - name: Build docs
+        run: npm run build
+
+  # Single required status check; skipped jobs count as success.
+  ci-ok:
+    name: CI OK
+    if: always()
+    runs-on: ubuntu-latest
+    needs:
+      - changes
+      - version-sync
+      - lint-python
+      - migrations
+      - lint-ui
+      - image
+      - lint-docs
+    steps:
+      - name: Check job results
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+      - run: echo "All CI jobs passed or were skipped"

@@ -15,7 +15,8 @@
     "format:check": "prettier --check ./app",
     "format": "prettier --write ./app",
     "format-lib": "prettier --write ./frontend-lib/src",
-    "format-lib:check": "prettier --check ./frontend-lib/src"
+    "format-lib:check": "prettier --check ./frontend-lib/src",
+    "test": "yarn workspace @electrolux-oss/infrakitchen test"
   },
   "workspaces": [
     "frontend-lib"

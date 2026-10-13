@@ -43,3 +43,10 @@ repos:
         entry: ./scripts/run_typescript_linter.sh
         language: system
         verbose: true
+
+      - id: ui-tests
+        name: Run UI unit tests
+        entry: ./scripts/run_ui_tests.sh
+        language: system
+        verbose: true
+        pass_filenames: false

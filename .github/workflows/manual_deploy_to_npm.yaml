@@ -1,5 +1,6 @@
-name: Build and Deploy Packages to NPM manually
+name: Publish npm snapshot (rc) manually
 
+# Stable versions are published by publish.yaml when a GitHub release is published.
 on:
   workflow_dispatch:
 
@@ -8,6 +9,7 @@ permissions:
 
 jobs:
   build-and-publish-to-npm:
+    if: ${{ github.repository_owner == 'electrolux-oss' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -28,15 +30,11 @@ jobs:
       #############################################################################
       # publish a library to npm
       #############################################################################
-      - name: Setup version based on branch
+      - name: Setup snapshot version
         working-directory: ./ui/frontend-lib
         run: |
           VERSION=$(npm pkg get version --workspaces=false | tr -d \")
-          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            npm pkg set version=$VERSION
-          else
-            npm pkg set version=$VERSION-$(date +%F%T | tr -d '\-:')-$(echo ${{ github.sha }} | cut -c 1-7)
-          fi
+          npm pkg set version="$VERSION-$(date +%F%T | tr -d '\-:')-${GITHUB_SHA::7}"
 
       #############################################################################
       # publish a release to npm
@@ -48,10 +46,6 @@ jobs:
           yarn build
           yarn config set -H 'npmAuthToken' "${{secrets.NPM_TOKEN}}"
 
-          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            yarn npm publish --access public --tolerate-republish
-          else
-            yarn npm publish --access public --tolerate-republish --tag rc
-          fi
+          yarn npm publish --access public --tolerate-republish --tag rc
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

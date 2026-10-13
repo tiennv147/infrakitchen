@@ -1,0 +1,17 @@
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.DS_Store
+server/.env_local
+server/build-info.json
+ui/dist
+ui/frontend-lib/dist
+dist
+.blume
+.astro
+ik_data
+erl_crash.dump
+e2e/test-results
+e2e/playwright-report

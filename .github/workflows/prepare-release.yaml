@@ -1,0 +1,67 @@
+name: Prepare Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v (X.Y.Z or X.Y.Z-rc.N)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Open release PR
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      # PRs opened with GITHUB_TOKEN do not trigger CI; set RELEASE_PR_TOKEN to get checks on the release PR.
+      GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.RELEASE_PR_TOKEN || github.token }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+
+      - name: Check tag does not exist
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::Tag v$VERSION already exists"
+            exit 1
+          fi
+
+      - name: Bump version
+        run: ./scripts/bump_version.sh "$VERSION"
+
+      - name: Generate release notes preview
+        run: |
+          {
+            echo "Bumps the version to \`$VERSION\`. Merge this PR, then run the **Release** workflow with version \`$VERSION\`."
+            echo
+            echo "## Release notes preview"
+            echo
+            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="v$VERSION" -f target_commitish="$DEFAULT_BRANCH" --jq .body
+          } > "$RUNNER_TEMP/pr-body.md"
+
+      - name: Open pull request
+        run: |
+          branch="release/v$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "chore: release v$VERSION"
+          git push origin "$branch"
+          gh pr create --base "$DEFAULT_BRANCH" --head "$branch" \
+            --title "chore: release v$VERSION" --body-file "$RUNNER_TEMP/pr-body.md"
