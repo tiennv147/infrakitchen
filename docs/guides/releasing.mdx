@@ -33,6 +33,20 @@ The migration check verifies there is a single Alembic head, runs `upgrade head`
 
 The `CI OK` job aggregates all CI jobs and is the one status check to require on `main`.
 
+### End-to-End Coverage
+
+The Playwright suite in [`e2e/tests`](https://github.com/electrolux-oss/infrakitchen/tree/main/e2e/tests) runs in Chromium against the built image and a fresh database. A setup step logs in through the UI as the guest super user and reuses that session for every test.
+
+| Spec | Test | What it checks |
+| --- | --- | --- |
+| `auth.setup.ts` | Log in as guest super user | `/login` → **Log in as a Guest** → **Guest Login (Super User)** lands on the dashboard |
+| `navigation.spec.ts` | Dashboard loads after login | `/` shows the **Welcome** or **Dashboard** heading |
+| `navigation.spec.ts` | List pages render without page errors | Each page shows its heading and throws no uncaught errors: Projects, Templates, Template Versions, Resources, Integrations, Code Repositories, Storages, Secrets, Executors, Batch Operations, Tasks, Workers, Roles, Audit Logs |
+| `server-info.spec.ts` | Server info dialog shows the build version | The header version badge opens **About InfraKitchen** showing `v<VERSION>` |
+| `projects.spec.ts` | Create and delete a project | Create a project, open its details, disable it, delete it, and confirm it is gone from `/projects` |
+
+Flows that need a worker, real cloud or Git credentials (integrations, templates, resource plan/apply, workflows) are not covered yet. New specs should stay independent of external services and clean up the data they create.
+
 ### Running the End-to-End Tests Locally
 
 <Steps>
