@@ -20,7 +20,7 @@ const listPages = [
 test("dashboard loads after login", async ({ page }) => {
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { level: 1, name: /^(Welcome|Dashboard)$/ }),
+    page.getByRole("heading", { level: 1, name: /^(Welcome|Dashboard)$/ }).first(),
   ).toBeVisible();
 });
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Usage: smoke_image.sh <image>
-# Needs PostgreSQL reachable at POSTGRES_HOST:POSTGRES_PORT (default localhost:5432) with an empty database.
+# Needs PostgreSQL published on the host at POSTGRES_PORT (default 5432) with an empty database.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,8 +20,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker run -d --name "$container" --network host \
-  -e POSTGRES_HOST="${POSTGRES_HOST:-localhost}" \
+# Bridge networking: the image's nginx also tries port 80, which only works without host networking.
+docker run -d --name "$container" \
+  --add-host=host.docker.internal:host-gateway \
+  -p 8000:8000 -p 8080:8080 \
+  -e POSTGRES_HOST=host.docker.internal \
   -e POSTGRES_PORT="${POSTGRES_PORT:-5432}" \
   -e POSTGRES_USER="${POSTGRES_USER:-postgres}" \
   -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}" \

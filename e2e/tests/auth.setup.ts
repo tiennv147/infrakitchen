@@ -8,7 +8,7 @@ setup("log in as guest super user", async ({ page }) => {
   await page.getByText("Guest Login (Super User)").click();
 
   await expect(
-    page.getByRole("heading", { level: 1, name: /^(Welcome|Dashboard)$/ }),
+    page.getByRole("heading", { level: 1, name: /^(Welcome|Dashboard)$/ }).first(),
   ).toBeVisible();
   await page.context().storageState({ path: "playwright/.auth/guest-super.json" });
 });
