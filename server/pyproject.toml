@@ -1,5 +1,10 @@
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/alembic/*", "src/fixtures/*"]
+
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
@@ -145,4 +150,5 @@ dev = [
   "boto3-stubs[essential]>=1.43.39",
   "basedpyright>=1.39.9",
   "kubernetes_asyncio-stubs @ git+https://github.com/kialo/kubernetes_asyncio-stubs.git@29.0.1",
+  "pytest-cov>=7.0.0",
 ]
