@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: infrakitchen
+      POSTGRES_PASSWORD: infrakitchen
+      POSTGRES_DB: infrakitchen
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U infrakitchen"]
+      interval: 2s
+      retries: 30
+
+  infrakitchen:
+    image: ${IK_IMAGE:-infrakitchen:local}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: infrakitchen
+      POSTGRES_PASSWORD: infrakitchen
+      POSTGRES_DB: infrakitchen
+      POSTGRES_MIGRATIONS: "true"
+      JWT_KEY: e2e-only-not-a-secret
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/zstatus')"]
+      interval: 3s
+      retries: 60
+    ports:
+      - "8080:8080"
