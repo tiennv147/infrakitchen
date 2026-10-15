@@ -38,6 +38,7 @@ class ServiceCreate(BaseModel):
     repository_url: str | None = Field(default=None)
     labels: list[str] = Field(default_factory=list)
     owners: list[uuid.UUID] = Field(default_factory=list)
+    depends_on: list[uuid.UUID] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -52,6 +53,7 @@ class ServiceUpdate(BaseModel):
     repository_url: str | None = Field(default=None)
     labels: list[str] | None = Field(default=None)
     owners: list[uuid.UUID] | None = Field(default=None)
+    depends_on: list[uuid.UUID] | None = Field(default=None)
 
     model_config = ConfigDict(from_attributes=True)
 

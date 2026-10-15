@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from application.projects.model import Project
 from core.base_models import Base, BaseRevision
-from sqlalchemy import UUID, Column, DateTime, ForeignKey, Index, JSON, Table, func
+from sqlalchemy import UUID, CheckConstraint, Column, DateTime, ForeignKey, Index, JSON, Table, func
 
 from core.users.model import User, UserDTO
 
@@ -16,6 +16,15 @@ service_owners = Table(
     Base.metadata,
     Column("service_id", ForeignKey("services.id"), primary_key=True),
     Column("user_id", ForeignKey("users.id"), primary_key=True),
+)
+
+# Topology metadata only: service_id depends on depends_on_service_id.
+service_links = Table(
+    "service_links",
+    Base.metadata,
+    Column("service_id", ForeignKey("services.id", ondelete="CASCADE"), primary_key=True),
+    Column("depends_on_service_id", ForeignKey("services.id", ondelete="CASCADE"), primary_key=True),
+    CheckConstraint("service_id <> depends_on_service_id", name="ck_service_links_no_self"),
 )
 
 
@@ -40,6 +49,25 @@ class Service(BaseRevision):
 
     creator: Mapped[User] = relationship("User", lazy="joined")
     owners: Mapped[list[User]] = relationship(secondary=service_owners, lazy="selectin")
+
+    depends_on: Mapped[list["Service"]] = relationship(
+        "Service",
+        secondary=service_links,
+        primaryjoin=lambda: Service.id == service_links.c.service_id,
+        secondaryjoin=lambda: Service.id == service_links.c.depends_on_service_id,
+        back_populates="dependents",
+        lazy="selectin",
+        passive_deletes=True,
+    )
+    dependents: Mapped[list["Service"]] = relationship(
+        "Service",
+        secondary=service_links,
+        primaryjoin=lambda: Service.id == service_links.c.depends_on_service_id,
+        secondaryjoin=lambda: Service.id == service_links.c.service_id,
+        back_populates="depends_on",
+        lazy="selectin",
+        passive_deletes=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), onupdate=func.now(), default=func.now())

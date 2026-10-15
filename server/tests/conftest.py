@@ -25,6 +25,14 @@ from .fixtures.test_service_fixtures import (
     service_response,
     mocked_service,
 )
+from .fixtures.test_environment_fixtures import (
+    mock_environment_crud,
+    mock_environment_service,
+    mocked_environment,
+    mock_service_instance_crud,
+    mock_service_instance_service,
+    mocked_service_instance,
+)
 from .fixtures.test_template_fixtures import (
     mock_template_crud,
     mock_template_service,
@@ -228,6 +236,12 @@ __all__ = [
     "mock_service_service",
     "service_response",
     "mocked_service",
+    "mock_environment_crud",
+    "mock_environment_service",
+    "mocked_environment",
+    "mock_service_instance_crud",
+    "mock_service_instance_service",
+    "mocked_service_instance",
     "mock_permission_crud",
     "mock_permission_service",
     "mocked_permission_response",

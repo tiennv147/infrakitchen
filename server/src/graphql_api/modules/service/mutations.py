@@ -26,6 +26,7 @@ class ServiceCreateInput:
     repository_url: str | None = None
     labels: list[str] = strawberry.field(default_factory=list)
     owners: list[uuid.UUID] = strawberry.field(default_factory=list)
+    depends_on: list[uuid.UUID] = strawberry.field(default_factory=list)
 
 
 @strawberry_pydantic.input(model=ServiceUpdate, all_fields=False)
@@ -37,6 +38,7 @@ class ServiceUpdateInput:
     repository_url: str | None = None
     labels: list[str] | None = None
     owners: list[uuid.UUID] | None = None
+    depends_on: list[uuid.UUID] | None = None
 
 
 @strawberry.input

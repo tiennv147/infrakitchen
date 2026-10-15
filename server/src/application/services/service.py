@@ -4,11 +4,13 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from application.environments.model import Environment
 from application.projects.model import Project
+from application.service_instances.model import ServiceInstance
 from core.audit_logs.handler import AuditLogHandler
 from core.constants.model import ModelActions
 from core.database import FieldSpec, to_dict
-from core.errors import EntityNotFound
+from core.errors import DependencyError, EntityNotFound
 from core.notifications.model import Subscription
 from core.notifications.service import SubscriptionService
 from core.permissions.model import Permission
@@ -107,8 +109,17 @@ class ServiceService:
         if body.get("repository_url") == "":
             body["repository_url"] = None
 
-        if not has_field_changes(body, existing_service):
+        depends_on = body.pop("depends_on", None)
+        depends_on_changed = False
+        if depends_on is not None:
+            await self.crud.session.refresh(existing_service, ["depends_on"])
+            current = sorted(str(dep.id) for dep in existing_service.depends_on)
+            depends_on_changed = sorted(str(dep_id) for dep_id in depends_on) != current
+
+        if not depends_on_changed and not has_field_changes(body, existing_service):
             raise ValueError("No changes detected; the service is already up to date.")
+        if depends_on is not None:
+            body["depends_on"] = depends_on
 
         if body.get("project_id"):
             await self._assert_project_exists(body["project_id"])
@@ -133,6 +144,23 @@ class ServiceService:
         existing_service = await self.crud.get_by_id(service_id)
         if not existing_service:
             raise EntityNotFound("Service not found")
+
+        deployed = list(
+            (
+                await self.crud.session.execute(
+                    select(Environment.id, Environment.name)
+                    .join(ServiceInstance, ServiceInstance.environment_id == Environment.id)
+                    .where(ServiceInstance.service_id == existing_service.id)
+                )
+            ).all()
+        )
+        if deployed:
+            raise DependencyError(
+                message=f"Cannot delete service, it is deployed to {len(deployed)} environments",
+                metadata=[
+                    {"id": str(env_id), "name": env_name, "entityName": "environment"} for env_id, env_name in deployed
+                ],
+            )
 
         await self.audit_log_handler.create_log(service_id, requester.id, ModelActions.DELETE)
         await self.subscription_service.delete_many_by_entity_id("service", service_id)

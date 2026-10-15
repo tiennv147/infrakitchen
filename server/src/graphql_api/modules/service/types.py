@@ -15,12 +15,14 @@ service_mapper = StrawberrySQLAlchemyMapper()
 class ServiceType:
     # Only the relation is excluded, so it can be re-declared with ProjectType.
     # The project_id scalar stays auto-mapped and queryable.
-    __exclude__ = ["created_by", "project"]
+    __exclude__ = ["created_by", "project", "depends_on", "dependents"]
 
     id: uuid.UUID = strawberry.UNSET
     creator: UserType | None = None
     owners: list[UserType] = strawberry.field(default_factory=list)
     project: ProjectType | None = None
+    depends_on: list["ServiceType"] = strawberry.field(default_factory=list)
+    dependents: list["ServiceType"] = strawberry.field(default_factory=list)
 
     @strawberry.field
     def entity_name(self) -> str:
